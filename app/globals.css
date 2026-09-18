@@ -84,7 +84,7 @@ body{background-color:#f7f8fa;background-image:var(--pattern-light);background-s
 @media(max-width:600px){.hero h1{font-size:clamp(40px,12vw,50px);letter-spacing:-.045em}.hero-copy>p{font-size:16px}}
 
 /* Footer contrast: keep the original logo legible and establish a clear hierarchy. */
-footer{color:#f5f8ff;border-top-color:rgba(255,255,255,.1)}
+footer{color:#f5f8ff;border-top-color:rgba(255,255,255,.1);background-color:#071a3a;background-image:radial-gradient(circle at 82% 18%,rgba(70,119,230,.2),transparent 30%),radial-gradient(circle at 1px 1px,rgba(143,182,255,.16) 1px,transparent 1.2px),repeating-linear-gradient(118deg,transparent 0,transparent 54px,rgba(255,255,255,.025) 55px,transparent 56px),linear-gradient(145deg,#06152f,#0a234d);background-size:auto,28px 28px,auto,auto}
 footer .footer-brand .brand{width:210px;height:72px;padding:9px 14px;background:#fff;border:1px solid rgba(255,255,255,.75);border-radius:14px;box-shadow:0 14px 34px rgba(0,0,0,.16)}
 footer .footer-brand>p{color:#b7c5dc}
 footer .footer-links b{color:#f6f9ff}
