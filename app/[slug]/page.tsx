@@ -1,6 +1,6 @@
 'use client';
 import { useParams } from 'next/navigation';
-import Link from 'next/link';
+import Link from '@/components/static-link';
 import { useState } from 'react';
 import {
   ArrowRight,
