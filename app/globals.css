@@ -44,8 +44,8 @@ body{font-family:var(--font-manrope),Arial,sans-serif;letter-spacing:-.012em}.na
 
 /* Unified typography and a restrained logistics-grid texture across the site. */
 :root{
-  --pattern-light:linear-gradient(rgba(45,99,215,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(45,99,215,.04) 1px,transparent 1px),radial-gradient(circle at 1px 1px,rgba(45,99,215,.1) 1px,transparent 1.5px);
-  --pattern-dark:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px),radial-gradient(circle at 1px 1px,rgba(106,151,255,.16) 1px,transparent 1.5px);
+  --pattern-light:radial-gradient(circle at 1px 1px,rgba(45,99,215,.075) .8px,transparent 1px);
+  --pattern-dark:radial-gradient(circle at 1px 1px,rgba(132,168,255,.09) .8px,transparent 1px);
 }
 html{font-family:Arial,sans-serif}
 body{--font-site:var(--font-manrope),Arial,sans-serif}
@@ -53,30 +53,33 @@ body,button,input,select,textarea{font-family:var(--font-site)}
 h1,h2,h3,h4,h5,h6,p,a,span,strong,small,b,em,i,label,summary,blockquote,address,button,input,select,textarea{font-family:inherit}
 h1 span,.manifesto h2 em,.inner-hero h1 em,.quote-mark,.quote-symbol{font-family:var(--font-site);font-style:normal}
 
-body{background-color:#f7f8fa;background-image:var(--pattern-light);background-size:72px 72px,72px 72px,18px 18px}
+body{background-color:#f7f8fa;background-image:var(--pattern-light);background-size:28px 28px}
 .hero,.inner-hero,.product-page{
-  background-image:radial-gradient(circle at 78% 34%,rgba(51,117,255,.13),transparent 29%),radial-gradient(circle at 14% 78%,rgba(121,88,237,.07),transparent 24%),var(--pattern-light),linear-gradient(180deg,#fff 0%,#f5f7fb 100%);
-  background-size:auto,auto,72px 72px,auto;
+  background-image:radial-gradient(circle at 78% 34%,rgba(51,117,255,.1),transparent 29%),radial-gradient(circle at 14% 78%,rgba(121,88,237,.045),transparent 24%),var(--pattern-light),linear-gradient(180deg,#fff 0%,#f7f9fc 100%);
+  background-size:auto,auto,30px 30px,auto;
 }
 .manifesto,.proof,.page-detail,.calculator-section,.faq-section{
   background-color:rgba(247,248,250,.96);
-  background-image:radial-gradient(circle at 12% 18%,rgba(51,117,255,.07),transparent 20%),var(--pattern-light);
-  background-size:auto,72px 72px;
+  background-image:radial-gradient(circle at 12% 18%,rgba(51,117,255,.04),transparent 20%),var(--pattern-light);
+  background-size:auto,30px 30px;
 }
 .features,.logo-section,.inner-cards{
   background-color:rgba(255,255,255,.97);
   background-image:var(--pattern-light);
-  background-size:72px 72px,72px 72px,18px 18px;
+  background-size:30px 30px;
 }
 .service-showcase,.reviews-section{
   background-color:#eef3fb;
-  background-image:radial-gradient(circle at 88% 15%,rgba(121,88,237,.09),transparent 22%),var(--pattern-light);
-  background-size:auto,72px 72px;
+  background-image:radial-gradient(circle at 88% 15%,rgba(121,88,237,.055),transparent 22%),var(--pattern-light);
+  background-size:auto,30px 30px;
 }
 .control-section,footer{
-  background-image:radial-gradient(circle at 82% 24%,rgba(71,105,218,.16),transparent 28%),var(--pattern-dark),linear-gradient(145deg,#071833,#0b2145);
-  background-size:auto,72px 72px,72px 72px,18px 18px,auto;
+  background-image:radial-gradient(circle at 82% 24%,rgba(71,105,218,.1),transparent 28%),var(--pattern-dark),linear-gradient(145deg,#071833,#0b2145);
+  background-size:auto,30px 30px,auto;
 }
 .cta,.inner-cta{background-image:linear-gradient(135deg,rgba(255,255,255,.13),transparent 45%),var(--pattern-light)}
-@media(max-width:600px){body,.hero,.inner-hero,.product-page,.manifesto,.proof,.page-detail,.calculator-section,.faq-section,.features,.logo-section,.inner-cards,.service-showcase,.reviews-section,.control-section,footer{background-size:auto,56px 56px,56px 56px,14px 14px,auto}}
+.hero h1{font-size:clamp(48px,4.15vw,60px);line-height:1.02;letter-spacing:-.052em}
+.hero-copy{min-width:0}.hero-grid{grid-template-columns:minmax(0,1fr) minmax(0,1.08fr)}
+@media(max-width:900px){.hero h1{font-size:clamp(46px,8vw,60px)}.hero-grid{grid-template-columns:1fr}}
+@media(max-width:600px){.hero h1{font-size:clamp(40px,12vw,50px);letter-spacing:-.045em}.hero-copy>p{font-size:16px}}
 @media(max-width:1050px){.service-showcase{grid-template-columns:1fr}.showcase-intro{max-width:580px}.showcase-cards{grid-template-columns:repeat(2,1fr)}.showcase-card{height:420px}}@media(max-width:600px){.service-showcase{padding:70px 18px}.showcase-intro h2{font-size:44px}.showcase-cards{grid-template-columns:1fr}.showcase-card{height:400px}.showcase-art{height:170px}}
