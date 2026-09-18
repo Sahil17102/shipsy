@@ -44,11 +44,12 @@ body{font-family:var(--font-manrope),Arial,sans-serif;letter-spacing:-.012em}.na
 
 /* Unified typography and a restrained logistics-grid texture across the site. */
 :root{
-  --font-site:var(--font-manrope),Arial,sans-serif;
   --pattern-light:linear-gradient(rgba(45,99,215,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(45,99,215,.04) 1px,transparent 1px),radial-gradient(circle at 1px 1px,rgba(45,99,215,.1) 1px,transparent 1.5px);
   --pattern-dark:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px),radial-gradient(circle at 1px 1px,rgba(106,151,255,.16) 1px,transparent 1.5px);
 }
-html,body,button,input,select,textarea{font-family:var(--font-site)}
+html{font-family:Arial,sans-serif}
+body{--font-site:var(--font-manrope),Arial,sans-serif}
+body,button,input,select,textarea{font-family:var(--font-site)}
 h1,h2,h3,h4,h5,h6,p,a,span,strong,small,b,em,i,label,summary,blockquote,address,button,input,select,textarea{font-family:inherit}
 h1 span,.manifesto h2 em,.inner-hero h1 em,.quote-mark,.quote-symbol{font-family:var(--font-site);font-style:normal}
 
