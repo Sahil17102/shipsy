@@ -12,9 +12,9 @@ interface AppLogoProps {
 }
 
 const sizeMap: Record<LogoSize, { logo: string; mark: string; label: string }> = {
-  sm: { logo: "h-10 w-[112px]", mark: "h-9 w-9", label: "text-xs" },
-  md: { logo: "h-12 w-[138px]", mark: "h-10 w-10", label: "text-sm" },
-  lg: { logo: "h-14 w-[164px]", mark: "h-12 w-12", label: "text-base" },
+  sm: { logo: "h-10 w-[148px]", mark: "h-9 w-9", label: "text-[10px]" },
+  md: { logo: "h-12 w-[166px]", mark: "h-10 w-10", label: "text-xs" },
+  lg: { logo: "h-14 w-[190px]", mark: "h-12 w-12", label: "text-sm" },
 };
 
 export function AppLogo({
@@ -29,18 +29,18 @@ export function AppLogo({
   const logoSurface = "rounded-md bg-white px-2 py-1";
 
   const content = showText ? (
-    <>
+    <span className="flex min-w-0 flex-col items-start gap-1">
       <img
         src="/shipsy-logo.png"
         alt="ShipSy - Shipping, Simplified."
-        className={`${logo} ${logoSurface} shrink-0 object-contain object-left`}
+        className={`${logo} ${logoSurface} block shrink-0 object-contain object-left`}
       />
       {label && (
-        <span className={`${labelSize} whitespace-nowrap border-l border-current/20 pl-3 font-semibold uppercase tracking-[0.18em] ${textClassName}`}>
+        <span className={`${labelSize} whitespace-nowrap font-semibold uppercase tracking-[0.24em] ${textClassName}`}>
           {label}
         </span>
       )}
-    </>
+    </span>
   ) : (
     <span className={`${mark} ${logoSurface} inline-flex shrink-0 overflow-hidden`} aria-label="ShipSy">
       <img
@@ -52,16 +52,8 @@ export function AppLogo({
   );
 
   if (to) {
-    return (
-      <Link to={to} className={`flex items-center gap-2.5 no-underline ${className}`} aria-label="Shipsy admin home">
-        {content}
-      </Link>
-    );
+    return <Link to={to} className={`flex items-center no-underline ${className}`} aria-label="Shipsy admin home">{content}</Link>;
   }
 
-  return (
-    <div className={`flex items-center gap-2.5 ${className}`}>
-      {content}
-    </div>
-  );
+  return <div className={`flex items-center ${className}`}>{content}</div>;
 }

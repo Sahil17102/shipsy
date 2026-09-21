@@ -203,7 +203,7 @@ export default function Sidebar({ mobileOpen, onMobileClose, collapsed }: Sideba
         collapsed ? "w-[68px]" : "w-60"
       }`}>
         {/* Header */}
-        <div className={`flex items-center h-14 px-4 border-b border-border-light shrink-0 ${collapsed ? "justify-center px-2" : ""}`}>
+        <div className={`flex items-center h-[86px] px-4 border-b border-border-light shrink-0 ${collapsed ? "justify-center px-2" : ""}`}>
           <AppLogo size="sm" showText={!collapsed} />
         </div>
 
@@ -234,7 +234,7 @@ export default function Sidebar({ mobileOpen, onMobileClose, collapsed }: Sideba
               }}
               className="fixed inset-y-0 left-0 w-60 bg-background-elevated z-50 shadow-xl lg:hidden flex flex-col"
             >
-              <div className="flex items-center h-14 px-4 border-b border-border-light shrink-0">
+              <div className="flex items-center h-[86px] px-4 border-b border-border-light shrink-0">
                 <AppLogo size="sm" />
               </div>
 
