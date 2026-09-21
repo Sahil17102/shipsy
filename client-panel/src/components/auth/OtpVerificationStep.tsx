@@ -4,6 +4,8 @@ import { animationConfig } from "@/config/animations";
 import { OtpInput } from "./OtpInput";
 import { ErrorBanner } from "./ErrorBanner";
 
+const DEMO_OTP = "123456";
+
 const slideVariants = {
   enter: { opacity: 0, x: 20 },
   center: { opacity: 1, x: 0 },
@@ -74,6 +76,14 @@ export function OtpVerificationStep({
               </p>
             </div>
           </div>
+        </div>
+        <div className="mb-5 flex items-center justify-between rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+            Demo OTP
+          </span>
+          <code className="text-lg font-bold tracking-[0.28em] text-primary">
+            {DEMO_OTP}
+          </code>
         </div>
         <OtpInput onComplete={onOtpComplete} disabled={loading} length={6} />
       </div>

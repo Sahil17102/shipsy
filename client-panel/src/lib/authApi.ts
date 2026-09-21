@@ -5,6 +5,7 @@ import { shouldUseStaticClientData } from "./staticMode";
 
 const USER_STORAGE_KEY = "shipsy-client-user";
 const ACCOUNTS_STORAGE_KEY = "shipsy-client-accounts";
+const DEMO_OTP = "123456";
 
 const DEMO_USER: User = {
   id: "demo-client-user",
@@ -131,9 +132,15 @@ export const authApi = {
       const { data } = await api.post<{ user: User; isNewUser: boolean }>("/auth/verify-otp", params);
       return { user: persistUser(data.user), isNewUser: data.isNewUser };
     }
+    if (params.code !== DEMO_OTP) {
+      throw new Error("Invalid OTP. Use 123456 to sign in.");
+    }
     const existingUser = findAccount(params.identifier);
-    const user = existingUser ?? makeShipsyUser(params.identifier, false);
-    return { user: persistUser(user), isNewUser: !existingUser };
+    const user = {
+      ...(existingUser ?? makeShipsyUser(params.identifier, true)),
+      onboardingComplete: true,
+    };
+    return { user: persistUser(user), isNewUser: false };
   },
 
   loginWithPassword: async (params: {
