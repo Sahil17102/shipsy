@@ -125,11 +125,8 @@ export function Header() {
           <Link href="/contact">Contact</Link>
         </nav>
         <div className={open ? 'nav-actions open' : 'nav-actions'}>
-          <Link className="nav-signin" href={CLIENT_PANEL_URL}>
+          <Link className="nav-cta nav-signin" href={CLIENT_PANEL_URL}>
             Sign In
-          </Link>
-          <Link className="nav-cta" href={CLIENT_PANEL_URL}>
-            Client Panel
           </Link>
         </div>
         <button
