@@ -136,11 +136,11 @@ export const authApi = {
       throw new Error("Invalid OTP. Use 123456 to sign in.");
     }
     const existingUser = findAccount(params.identifier);
-    const user = {
-      ...(existingUser ?? makeShipsyUser(params.identifier, true)),
-      onboardingComplete: true,
-    };
-    return { user: persistUser(user), isNewUser: false };
+    if (existingUser) {
+      return { user: persistUser(existingUser), isNewUser: false };
+    }
+    const user = makeShipsyUser(params.identifier, false);
+    return { user: persistUser(user), isNewUser: true };
   },
 
   loginWithPassword: async (params: {

@@ -18,6 +18,9 @@ import {
   CircleDot,
   ArrowUpRight,
   RefreshCw,
+  Activity,
+  Clock3,
+  TrendingUp,
 } from "lucide-react";
 
 // ── Skeleton primitives ──
@@ -343,6 +346,40 @@ export function SellerHomePage() {
       </div>
 
       {/* ── Profile Setup (if incomplete) ── */}
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.12 }}
+        className="overflow-hidden rounded-xl border border-[#17396f]/15 bg-[#0b2245] text-white shadow-[0_18px_45px_rgba(17,45,91,0.14)]"
+      >
+        <div className="flex flex-col gap-5 px-5 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-xs">
+            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-300">
+              <Activity className="h-3.5 w-3.5" /> Analytics snapshot
+            </div>
+            <h3 className="mt-2 text-lg font-bold">Network performance</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-300">A quick pulse on speed, delivery quality and exceptions.</p>
+          </div>
+          <div className="grid flex-1 grid-cols-2 gap-3 sm:grid-cols-4 lg:max-w-3xl">
+            {[
+              { label: "Delivery rate", value: "94.8%", note: "+2.4% this month", icon: TrendingUp, color: "text-emerald-300" },
+              { label: "On-time", value: "91.2%", note: "Within promised SLA", icon: CheckCircle2, color: "text-cyan-300" },
+              { label: "Avg. transit", value: "2.6d", note: "Across active lanes", icon: Clock3, color: "text-amber-300" },
+              { label: "NDR rate", value: "2.4%", note: "0.8% below average", icon: AlertTriangle, color: "text-rose-300" },
+            ].map((metric) => (
+              <div key={metric.label} className="border-l border-white/15 pl-3">
+                <div className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${metric.color}`}>
+                  <metric.icon className="h-3.5 w-3.5" /> {metric.label}
+                </div>
+                <p className="mt-2 text-xl font-bold">{metric.value}</p>
+                <p className="mt-1 text-[10px] text-slate-400">{metric.note}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="h-1 bg-[linear-gradient(90deg,#2f6bff_0%,#22c7a9_38%,#f7b84b_68%,#ff7043_100%)]" />
+      </motion.section>
+
       {!allComplete && (
         <motion.div
           initial={{ opacity: 0, y: 16 }}
