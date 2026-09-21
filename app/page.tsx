@@ -35,6 +35,7 @@ const logos = [
   'Pothys',
   'Minimalist',
 ];
+const CLIENT_PANEL_URL = 'https://shipsy-client-wkxv.onrender.com/';
 const features = [
   {
     icon: Route,
@@ -123,6 +124,14 @@ export function Header() {
           <Link href="/track-shipment">Track Shipment</Link>
           <Link href="/contact">Contact</Link>
         </nav>
+        <div className={open ? 'nav-actions open' : 'nav-actions'}>
+          <Link className="nav-signin" href={CLIENT_PANEL_URL}>
+            Sign In
+          </Link>
+          <Link className="nav-cta" href={CLIENT_PANEL_URL}>
+            Client Panel
+          </Link>
+        </div>
         <button
           className="menu"
           onClick={() => setOpen(!open)}
@@ -534,7 +543,7 @@ export default function Home() {
               create delivery experiences your customers remember.
             </p>
             <div className="hero-actions">
-              <Link className="btn-primary" href="/demo">
+              <Link className="btn-primary" href={CLIENT_PANEL_URL}>
                 Start shipping smarter <ArrowRight size={18} />
               </Link>
               <Link className="btn-ghost" href="/platform">

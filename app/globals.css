@@ -97,3 +97,11 @@ footer .footer-contact span:nth-of-type(1){color:#f6f9ff}
 footer .footer-bottom{color:#9cacc4;border-top-color:rgba(255,255,255,.16)}
 @media(max-width:560px){footer .footer-brand .brand{width:180px;height:64px}}
 @media(max-width:1050px){.service-showcase{grid-template-columns:1fr}.showcase-intro{max-width:580px}.showcase-cards{grid-template-columns:repeat(2,1fr)}.showcase-card{height:420px}}@media(max-width:600px){.service-showcase{padding:70px 18px}.showcase-intro h2{font-size:44px}.showcase-cards{grid-template-columns:1fr}.showcase-card{height:400px}.showcase-art{height:170px}}
+
+/* Client panel entry points */
+.nav-signin{color:var(--ink);transition:color .2s ease}
+.nav-signin:hover{color:#2468d8}
+@media(max-width:900px){
+  .nav-actions.open{display:flex;position:absolute;top:252px;left:0;right:0;background:var(--paper);padding:0 25px 25px;flex-direction:column;align-items:stretch;gap:14px}
+  .nav-actions.open .nav-signin,.nav-actions.open .nav-cta{justify-content:center}
+}

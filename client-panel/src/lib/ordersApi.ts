@@ -1,0 +1,814 @@
+import axios from "axios";
+import { api } from "./api";
+import { downloadBlob } from "./utils";
+import type { Order, CreateOrderPayload, TrackingEvent } from "./ordersTypes";
+import {
+  courierApi,
+  isCourierApiConfigured,
+  shouldUseCourierApi,
+  type CourierCreateOrderPayload,
+  type CourierPackagePayload,
+  type CourierPickupAddressPayload,
+  type CourierRawOrder,
+} from "./courierApi";
+
+// Re-export types for backward compatibility
+export type { Order, OrderStatus, OrderAddress, OrderProduct, OrderRate, CreateOrderPayload, TrackingEvent } from "./ordersTypes";
+
+/**
+ * Result of an "Initiate Pickup" call. `warnings` carries orders that went
+ * through without a pickup of their own — e.g. the courier already had one for
+ * that warehouse/date — so the UI can avoid reporting a false clean success.
+ */
+export interface ManifestResponse {
+  manifestUrl?: string;
+  ordersProcessed: number;
+  errors: Array<{ awb: string; error: string }>;
+  warnings?: Array<{ awb: string; warning: string }>;
+}
+
+export interface OrderStats {
+  total: number;
+  created: number;
+  processing: number;
+  booked: number;
+  pickup_initiated: number;
+  shipped: number;
+  in_transit: number;
+  out_for_delivery: number;
+  delivered: number;
+  ndr: number;
+  rto_initiated: number;
+  rto_in_transit: number;
+  rto_delivered: number;
+  cancelled: number;
+  lost: number;
+  totalRevenue: number;
+}
+
+/**
+ * Filters shared by the NDR and RTO screens. Same names as the main order list
+ * so the server can reuse one where-builder — except `startDate`/`endDate`,
+ * which mean "NDR date" / "RTO updated" on those screens.
+ */
+export interface NdrRtoFilterParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  courierId?: string;
+  paymentType?: string;
+  orderType?: string;
+  startDate?: string;
+  endDate?: string;
+  sortField?: string;
+  sortOrder?: string;
+}
+
+export interface OrderListParams {
+  search?: string;
+  status?: string;
+  orderType?: string;
+  paymentType?: string;
+  pickupAddressId?: string;
+  /** Filter by the named courier (couriers.id) — applied in SQL, not per page. */
+  courierId?: string;
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  limit?: number;
+  sortField?: string;
+  sortOrder?: "asc" | "desc";
+}
+
+export interface BulkCreateRowResult {
+  rowNumber: number;
+  orderId: string;
+  success: boolean;
+  order?: Order;
+  error?: string;
+}
+
+export interface BulkCreateResponse {
+  success: boolean;
+  total: number;
+  successCount: number;
+  failedCount: number;
+  results: BulkCreateRowResult[];
+}
+
+export interface OrderListResponse {
+  orders: Order[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+  stats: OrderStats;
+}
+
+interface StoredProviderPickupAddress {
+  id: string;
+  providerPickupAddressId?: string;
+  nickname?: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  [key: string]: unknown;
+}
+
+function toNumber(value: unknown, fallback = 0): number {
+  const n = typeof value === "string" ? Number(value) : value;
+  return typeof n === "number" && Number.isFinite(n) ? n : fallback;
+}
+
+function round(value: number, digits = 3): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function kgFromGrams(grams: number): number {
+  return round(Math.max(grams, 0) / 1000);
+}
+
+function volumetricKg(length = 0, breadth = 0, height = 0): number {
+  if (!length || !breadth || !height) return 0;
+  return round((length * breadth * height) / 5000);
+}
+
+function b2cChargeableKg(weightG: number, length?: number, breadth?: number, height?: number): number {
+  return Math.max(kgFromGrams(weightG), volumetricKg(length, breadth, height), 0.5);
+}
+
+function makeProviderPackage(input: {
+  count?: number;
+  weightKg: number;
+  length?: number;
+  breadth?: number;
+  height?: number;
+}): CourierPackagePayload {
+  const count = input.count ?? 1;
+  const length = input.length || 0;
+  const breadth = input.breadth || 0;
+  const height = input.height || 0;
+  const weightKg = round(input.weightKg);
+  return {
+    count: String(count),
+    length: String(length),
+    width: String(breadth),
+    height: String(height),
+    volumetric_weight: String(volumetricKg(length, breadth, height)),
+    weight: String(weightKg),
+    total_weight: String(round(weightKg * count)),
+  };
+}
+
+function extractProviderOrderId(id: string): string {
+  const stored = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
+  const match = stored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id);
+  return String(match?.providerOrderId || id);
+}
+
+function mapProviderStatus(status?: string): Order["status"] {
+  const value = (status || "").toLowerCase().replace(/[\s-]+/g, "_");
+  if (value.includes("manifest")) return "booked";
+  if (value.includes("transit")) return "in_transit";
+  if (value.includes("out_for_delivery")) return "out_for_delivery";
+  if (value.includes("delivered") || value.includes("completed")) return "delivered";
+  if (value.includes("cancel")) return "cancelled";
+  if (value.includes("rto")) return value.includes("delivered") ? "rto_delivered" : "rto_in_transit";
+  if (value.includes("process")) return "processing";
+  if (value.includes("pending")) return "created";
+  return "processing";
+}
+
+function getCourierDisplayName(courierId: string): string {
+  const id = courierId.includes(":") ? courierId.split(":").pop() : courierId;
+  if (id === "80") return "DLVY Standard";
+  if (id === "152") return "Delhivery B2B";
+  if (id === "161") return "Shadowfax";
+  return courierId || "Teampafex";
+}
+
+function buildStats(orders: Order[]): OrderStats {
+  const stats: OrderStats = {
+    total: orders.length,
+    created: 0,
+    processing: 0,
+    booked: 0,
+    pickup_initiated: 0,
+    shipped: 0,
+    in_transit: 0,
+    out_for_delivery: 0,
+    delivered: 0,
+    ndr: 0,
+    rto_initiated: 0,
+    rto_in_transit: 0,
+    rto_delivered: 0,
+    cancelled: 0,
+    lost: 0,
+    totalRevenue: 0,
+  };
+  orders.forEach((order) => {
+    stats[order.status] += 1;
+    stats.totalRevenue += order.rate?.totalCharge ?? 0;
+  });
+  return stats;
+}
+
+function isProviderId(value: string): boolean {
+  return /^\d+$/.test(value);
+}
+
+function findStoredPickupAddress(id: string): StoredProviderPickupAddress | undefined {
+  return courierApi
+    .readStoredPickupAddresses<StoredProviderPickupAddress>()
+    .find((address) => address.id === id || address.providerPickupAddressId === id);
+}
+
+function toPickupRegistrationPayload(address: StoredProviderPickupAddress): CourierPickupAddressPayload {
+  return {
+    address_nick_name: String(address.nickname || "Pickup Address"),
+    contact_name: String(address.contactName || "Warehouse Manager"),
+    phone: String(address.phone || ""),
+    email: typeof address.email === "string" && address.email ? address.email : undefined,
+    address_line_1: String(address.addressLine1 || ""),
+    address_line_2: typeof address.addressLine2 === "string" && address.addressLine2 ? address.addressLine2 : undefined,
+    pincode: String(address.pincode || ""),
+    city: String(address.city || ""),
+    state: String(address.state || ""),
+  };
+}
+
+async function resolveProviderPickupAddress(
+  pickupAddressId: string,
+): Promise<{ id: string; city: string; pincode: string }> {
+  if (isProviderId(pickupAddressId)) {
+    const stored = findStoredPickupAddress(pickupAddressId);
+    return { id: pickupAddressId, city: String(stored?.city || ""), pincode: String(stored?.pincode || "") };
+  }
+
+  const address = findStoredPickupAddress(pickupAddressId);
+  if (!address) return { id: pickupAddressId, city: "", pincode: "" };
+  if (address.providerPickupAddressId && isProviderId(address.providerPickupAddressId)) {
+    return { id: address.providerPickupAddressId, city: String(address.city || ""), pincode: String(address.pincode || "") };
+  }
+
+  const result = await courierApi.registerPickupAddress(toPickupRegistrationPayload(address));
+  if (!result.status || !result.pickup_address_id) {
+    throw new Error(result.msg || "Pickup address registration failed");
+  }
+
+  const providerPickupAddressId = String(result.pickup_address_id);
+  const addresses = courierApi.readStoredPickupAddresses<StoredProviderPickupAddress>();
+  courierApi.writeStoredPickupAddresses(
+    addresses.map((item) =>
+      item.id === address.id ? { ...item, providerPickupAddressId } : item,
+    ),
+  );
+  return { id: providerPickupAddressId, city: String(address.city || ""), pincode: String(address.pincode || "") };
+}
+
+function getProviderOrderId(result: {
+  order_id?: string | number;
+  id?: string | number;
+  data?: { order_id?: string | number; id?: string | number };
+}): string {
+  return String(result.order_id ?? result.data?.order_id ?? result.id ?? result.data?.id ?? `provider-${Date.now()}`);
+}
+
+function getProviderAwb(result: {
+  awb_no?: string;
+  awb?: string;
+  awb_number?: string;
+  data?: { awb_no?: string; awb?: string; awb_number?: string };
+}): string {
+  return String(result.awb_no ?? result.data?.awb_no ?? result.awb ?? result.data?.awb ?? result.awb_number ?? result.data?.awb_number ?? "");
+}
+
+function toProviderCreateOrderPayload(
+  data: CreateOrderPayload,
+  providerPickupAddress: { id: string; city: string; pincode: string },
+): CourierCreateOrderPayload {
+  const providerPickupAddressId = providerPickupAddress.id;
+  const isB2B = data.orderType === "B2B";
+  const packages = isB2B && data.packages?.length
+    ? data.packages.flatMap((pkg) => {
+        const count = Math.max(1, Math.floor(pkg.quantity ?? 1));
+        return Array.from({ length: count }, () =>
+          makeProviderPackage({
+            weightKg: pkg.weight,
+            length: pkg.length,
+            breadth: pkg.breadth,
+            height: pkg.height,
+          }),
+        );
+      })
+    : [
+        makeProviderPackage({
+          weightKg: b2cChargeableKg(data.weight, data.length, data.breadth, data.height),
+          length: data.length,
+          breadth: data.breadth,
+          height: data.height,
+        }),
+      ];
+
+  const totalWeight = round(packages.reduce((sum, pkg) => sum + toNumber(pkg.total_weight ?? pkg.weight), 0));
+  const totalVolumetricWeight = round(packages.reduce((sum, pkg) => sum + toNumber(pkg.volumetric_weight), 0));
+  const chargeableWeight = Math.max(totalWeight, totalVolumetricWeight, isB2B ? 1 : 0.5);
+  const selectedRate = data.rate || {};
+  const freightCharge = round(toNumber(selectedRate.freightCharge ?? selectedRate.forward), 2);
+  const totalCharge = round(toNumber(selectedRate.totalCharge), 2);
+  const otherCharges = round(toNumber(selectedRate.otherCharges), 2);
+  const selectedCodCharges = round(toNumber(selectedRate.codCharges, data.paymentType === "cod" ? Math.max(35, data.orderAmount * 0.02) : 0), 2);
+  const firstInvoice = data.invoices?.[0];
+  const products = data.products.map((product) => {
+    const total = product.unitPrice * product.quantity;
+    return {
+      product_name: product.name,
+      sku: product.hsn || product.name.replace(/\s+/g, "-").toUpperCase().slice(0, 32) || data.orderId,
+      rate: String(product.unitPrice),
+      quantity: String(product.quantity),
+      tax_rate: String(product.taxRate ?? 0),
+      total: String(round(total, 2)),
+    };
+  });
+
+  return {
+    buyer_pincode: data.pincode,
+    buyer_city: data.city,
+    buyer_state: data.state,
+    buyer_name: data.buyerName,
+    buyer_mobile: data.buyerPhone,
+    alternate_buyer_mobile: null,
+    buyer_email: data.buyerEmail || "support@shipsy.in",
+    buyer_address1: data.address,
+    buyer_address2: data.address2 || "",
+    invoice_number: firstInvoice?.invoiceNumber || data.orderId,
+    order_date: data.orderDate,
+    reseller_name: "",
+    eway_bill_no: firstInvoice?.ebn || "",
+    dimension_unit: "cm",
+    rov: "Owner Risk",
+    total_order_value: String(round(data.orderAmount, 2)),
+    payment_amount: String(round(data.orderAmount, 2)),
+    order_amount: String(round(data.orderAmount, 2)),
+    products,
+    product_name: products.map((product) => product.product_name),
+    product_sku: products.map((product) => product.sku),
+    sku: products.map((product) => product.sku),
+    rate: products.map((product) => product.rate),
+    quantity: products.map((product) => product.quantity),
+    tax_rate: products.map((product) => product.tax_rate),
+    total: products.map((product) => product.total),
+    payment_method: data.paymentType === "cod" ? "COD" : "PREPAID",
+    cod_amount: data.paymentType === "cod" ? String(round(data.codAmount, 2)) : null,
+    cod_charges: String(selectedCodCharges),
+    no_of_box: String(packages.length),
+    total_weight: String(totalWeight),
+    total_volumetric_weight: String(totalVolumetricWeight),
+    chargeable_weight: String(chargeableWeight),
+    packages,
+    pickup_code: providerPickupAddress.pincode,
+    delivery_code: data.pincode,
+    freight: String(freightCharge),
+    freight_charge: String(freightCharge),
+    total_freight: String(freightCharge),
+    gst: String(otherCharges),
+    shipping_amount: String(totalCharge),
+    shipping_charge: String(totalCharge),
+    total_charges: String(totalCharge),
+    pickup_address_city_name: providerPickupAddress.city || data.city,
+    pickup_address_id: providerPickupAddressId,
+    rto_address_id: providerPickupAddressId,
+    submit_value: "Save Order",
+    order_type: data.orderType,
+    calculator_type: data.orderType,
+    delivery_partner_id: /^\d+$/.test(data.courierId) ? Number(data.courierId) : data.courierId,
+    courier_id: /^\d+$/.test(data.courierId) ? Number(data.courierId) : data.courierId,
+    delivery_patner_id: /^\d+$/.test(data.courierId) ? Number(data.courierId) : data.courierId,
+  };
+}
+
+function makeOrderFromPayload(
+  payload: CreateOrderPayload,
+  providerOrderId: string,
+  awb: string,
+): Order & { providerOrderId: string } {
+  const now = new Date().toISOString();
+  return {
+    id: providerOrderId,
+    userId: "courier-api",
+    orderId: payload.orderId,
+    orderType: payload.orderType,
+    paymentType: payload.paymentType,
+    status: awb ? "booked" : "created",
+    courierId: payload.courierId,
+    serviceProvider: "teampafex",
+    courierName: payload.courierName || getCourierDisplayName(payload.courierId),
+    awb,
+    providerOrderId,
+    pickupAddressId: payload.pickupAddressId,
+    deliveryAddress: {
+      contactName: payload.buyerName,
+      phone: payload.buyerPhone,
+      email: payload.buyerEmail,
+      addressLine1: payload.address,
+      addressLine2: payload.address2,
+      city: payload.city,
+      state: payload.state,
+      country: "India",
+      pincode: payload.pincode,
+    },
+    weight: payload.weight,
+    length: payload.length,
+    breadth: payload.breadth,
+    height: payload.height,
+    chargeableWeight: payload.chargeableWeight,
+    products: payload.products,
+    orderAmount: payload.orderAmount,
+    codAmount: payload.codAmount,
+    rate: payload.rate,
+    createdAt: now,
+    updatedAt: now,
+    companyName: payload.companyName,
+    companyGst: payload.companyGst,
+    packages: payload.packages,
+    invoices: payload.invoices,
+    chargesBreakdown: payload.chargesBreakdown,
+  };
+}
+
+async function createDirectCourierOrder(data: CreateOrderPayload): Promise<Order> {
+  try {
+    const providerPickupAddress = await resolveProviderPickupAddress(data.pickupAddressId);
+    const providerPayload = toProviderCreateOrderPayload(data, providerPickupAddress);
+    const result = await courierApi.createOrder(providerPayload);
+    if (!result.status) throw new Error(result.msg || "Courier API order creation failed");
+    const order = makeOrderFromPayload(data, getProviderOrderId(result), getProviderAwb(result));
+    const existing = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
+    courierApi.writeStoredOrders([order, ...existing.filter((item) => item.id !== order.id)]);
+    return order;
+  } catch (err) {
+    if (isNetworkError(err)) {
+      throw new Error(
+        "Real shipment was not sent to Teampafex because the browser cannot reach the courier API directly. Deploy the Shipsy API server and set TEAMPAFEX_EMAIL and TEAMPAFEX_PASSWORD there.",
+      );
+    }
+    throw err;
+  }
+}
+
+function isNetworkError(err: unknown): boolean {
+  return err instanceof Error && err.message.toLowerCase().includes("network");
+}
+
+function isApiUnavailableError(err: unknown): boolean {
+  const status = typeof (err as { status?: unknown })?.status === "number"
+    ? (err as { status: number }).status
+    : undefined;
+  const message = err instanceof Error ? err.message.toLowerCase() : "";
+  return isNetworkError(err) || status === 404 || status === 405 || message.includes("not reachable");
+}
+
+function apiServerUnavailableError(): Error {
+  return new Error(
+    "Shipsy API server is not reachable. Deploy the Render web service from render.yaml and set TEAMPAFEX_EMAIL and TEAMPAFEX_PASSWORD there, then redeploy.",
+  );
+}
+
+async function createSameOriginApiOrder(data: CreateOrderPayload): Promise<Order | null> {
+  if (typeof window === "undefined") return null;
+
+  const sameOriginApi = `${window.location.origin.replace(/\/+$/, "")}/api`;
+  const configuredApi = String(api.defaults.baseURL || "").replace(/\/+$/, "");
+  if (sameOriginApi === configuredApi) return null;
+
+  try {
+    const response = await axios.post<{ order?: Order }>(`${sameOriginApi}/orders`, data, {
+      timeout: 60_000,
+      headers: { "Content-Type": "application/json" },
+      withCredentials: true,
+    });
+    return response.data?.order ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function mapProviderOrder(raw: CourierRawOrder): Order {
+  const status = mapProviderStatus(raw.status);
+  const totalCharge = toNumber(raw.shipping_amount ?? raw.payment_amount);
+  const createdAt = raw.order_date ? new Date(String(raw.order_date)).toISOString() : new Date().toISOString();
+  return {
+    id: String(raw.id),
+    userId: "courier-api",
+    orderId: String(raw.invoice_number || raw.id),
+    orderType: "B2C",
+    paymentType: String(raw.payment_method || "PREPAID").toLowerCase() === "cod" ? "cod" : "prepaid",
+    status,
+    courierId: "",
+    serviceProvider: "courier_api",
+    courierName: "Courier API",
+    awb: String(raw.awb_no || ""),
+    providerOrderId: String(raw.id),
+    pickupAddressId: String(raw.pickup_address_id || ""),
+    deliveryAddress: {
+      contactName: String(raw.buyer_name || ""),
+      phone: String(raw.buyer_mobile || ""),
+      email: raw.buyer_email || undefined,
+      addressLine1: String(raw.buyer_address1 || ""),
+      addressLine2: String(raw.buyer_address2 || ""),
+      city: String(raw.buyer_city || ""),
+      state: String(raw.buyer_state || ""),
+      country: String(raw.country || "India"),
+      pincode: String(raw.buyer_pincode || ""),
+    },
+    weight: 0,
+    length: 0,
+    breadth: 0,
+    height: 0,
+    chargeableWeight: 0,
+    products: [],
+    orderAmount: toNumber(raw.payment_amount),
+    codAmount: toNumber(raw.cod_amount),
+    rate: {
+      forward: totalCharge,
+      rto: 0,
+      codCharges: 0,
+      otherCharges: 0,
+      freightCharge: totalCharge,
+      totalCharge,
+      zone: "",
+    },
+    shippedAt: raw.manifested_at || undefined,
+    deliveredAt: raw.delivered_at || undefined,
+    cancelledAt: raw.cancelled_at || undefined,
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+async function getProviderOrders(params?: OrderListParams): Promise<OrderListResponse> {
+  let orders: Order[] = [];
+  try {
+    const response = await courierApi.getOrders();
+    orders = (response.orders ?? []).map(mapProviderOrder);
+  } catch {
+    orders = [];
+  }
+
+  const storedOrders = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
+  const seen = new Set(orders.map((order) => order.id));
+  storedOrders.forEach((order) => {
+    if (!seen.has(order.id)) orders.unshift(order);
+  });
+
+  if (params?.status) orders = orders.filter((order) => order.status === params.status);
+  if (params?.orderType) orders = orders.filter((order) => order.orderType === params.orderType);
+  if (params?.paymentType) orders = orders.filter((order) => order.paymentType === params.paymentType);
+  if (params?.pickupAddressId) orders = orders.filter((order) => order.pickupAddressId === params.pickupAddressId);
+  if (params?.search) {
+    const query = params.search.toLowerCase();
+    orders = orders.filter((order) =>
+      [order.orderId, order.awb, order.deliveryAddress.contactName, order.deliveryAddress.phone]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query)),
+    );
+  }
+
+  const page = params?.page ?? 1;
+  const limit = params?.limit ?? 20;
+  const total = orders.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const start = (page - 1) * limit;
+  const paginated = orders.slice(start, start + limit);
+
+  return {
+    orders: paginated,
+    pagination: { page, limit, total, totalPages },
+    stats: buildStats(orders),
+  };
+}
+
+export const ordersApi = {
+  create: async (data: CreateOrderPayload): Promise<Order> => {
+    if (shouldUseCourierApi()) {
+      if (!isCourierApiConfigured()) {
+        throw new Error(
+          "Real shipment was not sent to Teampafex. Configure TEAMPAFEX_EMAIL and TEAMPAFEX_PASSWORD on the Shipsy API server, then redeploy.",
+        );
+      }
+
+      return createDirectCourierOrder(data);
+    }
+
+    try {
+      const { data: result } = await api.post("/orders", data);
+      if (!result?.order) throw apiServerUnavailableError();
+      return result.order as Order;
+    } catch (err) {
+      if (isApiUnavailableError(err)) {
+        const sameOriginOrder = await createSameOriginApiOrder(data);
+        if (sameOriginOrder) return sameOriginOrder;
+      }
+      if (isCourierApiConfigured()) return createDirectCourierOrder(data);
+      if (isApiUnavailableError(err)) throw apiServerUnavailableError();
+      throw err;
+    }
+  },
+
+  getAll: async (params?: OrderListParams): Promise<OrderListResponse> => {
+    if (shouldUseCourierApi()) {
+      return getProviderOrders(params);
+    }
+
+    const { data } = await api.get("/orders", { params });
+    return data as OrderListResponse;
+  },
+
+  getById: async (id: string): Promise<Order> => {
+    if (shouldUseCourierApi()) {
+      const stored = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
+      const match = stored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id);
+      if (match) return match;
+      const orders = await getProviderOrders({ search: id, page: 1, limit: 1 });
+      const order = orders.orders[0];
+      if (!order) throw new Error("Order not found");
+      return order;
+    }
+
+    const { data } = await api.get(`/orders/${id}`);
+    return data.order as Order;
+  },
+
+  downloadLabel: async (id: string, awb: string): Promise<void> => {
+    const { data } = await api.get(`/orders/${id}/label`, { responseType: "blob" });
+    downloadBlob(data, `label-${(awb || id).replace(/[^\w.-]+/g, "_")}.pdf`);
+  },
+
+  downloadInvoice: async (id: string, orderId: string): Promise<void> => {
+    const { data } = await api.get(`/orders/${id}/invoice`, { responseType: "blob" });
+    downloadBlob(data, `invoice-${(orderId || id).replace(/[^\w.-]+/g, "_")}.pdf`);
+  },
+
+  // ── New lifecycle APIs ──
+
+  manifestOrders: async (orderIds: string[]): Promise<ManifestResponse> => {
+    if (shouldUseCourierApi()) {
+      return {
+        ordersProcessed: 0,
+        errors: [],
+        warnings: orderIds.map((id) => ({
+          awb: id,
+          warning: "Courier API manifest/pickup endpoint is not available in the provided documentation.",
+        })),
+      };
+    }
+
+    const { data } = await api.post("/orders/manifest-orders", { orderIds });
+    return data;
+  },
+
+  // ── Bulk B2C ──
+
+  bulkCreate: async (orders: CreateOrderPayload[]): Promise<BulkCreateResponse> => {
+    if (shouldUseCourierApi()) {
+      const results: BulkCreateRowResult[] = [];
+      for (let i = 0; i < orders.length; i += 1) {
+        try {
+          const order = await ordersApi.create(orders[i]);
+          results.push({ rowNumber: i + 1, orderId: order.orderId, success: true, order });
+        } catch (err) {
+          results.push({
+            rowNumber: i + 1,
+            orderId: orders[i].orderId,
+            success: false,
+            error: err instanceof Error ? err.message : "Order creation failed",
+          });
+        }
+      }
+      const successCount = results.filter((result) => result.success).length;
+      return {
+        success: successCount === orders.length,
+        total: orders.length,
+        successCount,
+        failedCount: orders.length - successCount,
+        results,
+      };
+    }
+
+    const { data } = await api.post("/orders/bulk-create", { orders });
+    return data as BulkCreateResponse;
+  },
+
+  bulkCreateB2B: async (orders: CreateOrderPayload[]): Promise<BulkCreateResponse> => {
+    if (shouldUseCourierApi()) {
+      return ordersApi.bulkCreate(orders);
+    }
+
+    const { data } = await api.post("/orders/bulk-create-b2b", { orders });
+    return data as BulkCreateResponse;
+  },
+
+  bulkManifest: async (orderIds: string[]): Promise<ManifestResponse> => {
+    if (shouldUseCourierApi()) {
+      return ordersApi.manifestOrders(orderIds);
+    }
+
+    const { data } = await api.post("/orders/bulk-manifest", { orderIds });
+    return data;
+  },
+
+  downloadBulkLabels: async (orderIds: string[]): Promise<void> => {
+    const { data } = await api.post("/orders/bulk-labels", { orderIds }, { responseType: "blob" });
+    downloadBlob(data, `labels-${orderIds.length}.pdf`);
+  },
+
+  /** Download the pickup manifest for a single order. Same download-only rules as the bulk version. */
+  downloadManifest: async (id: string, orderId: string): Promise<void> => {
+    const { data } = await api.post("/orders/manifest", { orderIds: [id] }, { responseType: "blob" });
+    downloadBlob(data, `manifest-${orderId.replace(/[^\w.-]+/g, "_")}.pdf`);
+  },
+
+  /**
+   * Download the pickup manifest for a batch of orders — one sheet per courier
+   * in a single PDF. Download only: it does NOT raise pickups or mark the
+   * orders manifested (that stays with "Initiate Pickup").
+   */
+  downloadBulkManifest: async (orderIds: string[]): Promise<void> => {
+    const { data } = await api.post("/orders/manifest", { orderIds }, { responseType: "blob" });
+    downloadBlob(data, `manifest-${orderIds.length}.pdf`);
+  },
+
+  /** Couriers this seller has shipped with — options for the orders courier filter. */
+  getCourierOptions: async (orderType?: string): Promise<Array<{ id: string; name: string }>> => {
+    if (shouldUseCourierApi()) {
+      const partners = await courierApi.getCourierIds();
+      return partners
+        .filter((partner) => !orderType || String(partner.type).toUpperCase() === orderType.toUpperCase())
+        .map((partner) => ({ id: String(partner.id), name: partner.name }));
+    }
+
+    const { data } = await api.get("/orders/courier-options", { params: { orderType } });
+    return (data.couriers ?? []) as Array<{ id: string; name: string }>;
+  },
+
+  downloadBulkTemplate: async (): Promise<void> => {
+    const { data } = await api.get("/orders/bulk-template", { responseType: "blob" });
+    downloadBlob(data, "b2c-bulk-upload-template.csv");
+  },
+
+  cancelOrder: async (id: string, reason?: string): Promise<Order> => {
+    if (shouldUseCourierApi()) {
+      const providerOrderId = extractProviderOrderId(id);
+      await courierApi.cancelOrder(providerOrderId);
+      const order = await ordersApi.getById(id);
+      const updated = { ...order, status: "cancelled" as const, cancelledAt: new Date().toISOString() };
+      const stored = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
+      courierApi.writeStoredOrders([updated as Order & { providerOrderId: string }, ...stored.filter((item) => item.id !== updated.id)]);
+      return updated;
+    }
+
+    const { data } = await api.post(`/orders/${id}/cancel`, { reason });
+    return data.order as Order;
+  },
+
+  getTracking: async (id: string): Promise<TrackingEvent[]> => {
+    if (shouldUseCourierApi()) {
+      const providerOrderId = extractProviderOrderId(id);
+      const data = await courierApi.trackOrder(providerOrderId);
+      return [{
+        id: `${providerOrderId}-latest`,
+        orderId: providerOrderId,
+        awb: "",
+        statusCode: mapProviderStatus(data.order_status),
+        statusText: data.order_status,
+        source: "courier_api",
+        remarks: data.msg,
+        createdAt: new Date().toISOString(),
+      }];
+    }
+
+    const { data } = await api.get(`/orders/${id}/tracking`);
+    return data as TrackingEvent[];
+  },
+
+  // ── NDR ──
+
+  listNdr: async (params?: NdrRtoFilterParams): Promise<{ orders: Order[]; total: number }> => {
+    const { data } = await api.get("/orders/ndr/list", { params });
+    return data;
+  },
+
+  takeNdrAction: async (id: string, payload: { action: "reattempt" | "rto" | "reschedule"; remarks?: string }): Promise<void> => {
+    await api.post(`/orders/${id}/ndr-action`, payload);
+  },
+
+  // ── RTO ──
+
+  listRto: async (params?: NdrRtoFilterParams & { rtoPhase?: string }): Promise<{ orders: Order[]; total: number }> => {
+    const { data } = await api.get("/orders/rto/list", { params });
+    return data;
+  },
+};
