@@ -11,6 +11,14 @@ import {
   type CourierPickupAddressPayload,
   type CourierRawOrder,
 } from "./courierApi";
+import {
+  fshipApi,
+  isFshipApiConfigured,
+  isFshipServiceProvider,
+  shouldUseFshipApi,
+  type FshipCreateForwardOrderPayload,
+  type FshipTrackingResponse,
+} from "./fshipApi";
 
 // Re-export types for backward compatibility
 export type { Order, OrderStatus, OrderAddress, OrderProduct, OrderRate, CreateOrderPayload, TrackingEvent } from "./ordersTypes";
@@ -117,6 +125,11 @@ interface StoredProviderPickupAddress {
   [key: string]: unknown;
 }
 
+interface StoredFshipPickupAddress extends StoredProviderPickupAddress {
+  providerWarehouseId?: string;
+  warehouseId?: string | number;
+}
+
 function toNumber(value: unknown, fallback = 0): number {
   const n = typeof value === "string" ? Number(value) : value;
   return typeof n === "number" && Number.isFinite(n) ? n : fallback;
@@ -187,6 +200,7 @@ function getCourierDisplayName(courierId: string): string {
   if (id === "80") return "DLVY Standard";
   if (id === "152") return "Delhivery B2B";
   if (id === "161") return "Shadowfax";
+  if (courierId.toLowerCase().includes("logixmitra")) return "LogixMitra";
   return courierId || "Teampafex";
 }
 
@@ -284,6 +298,192 @@ function getProviderAwb(result: {
   data?: { awb_no?: string; awb?: string; awb_number?: string };
 }): string {
   return String(result.awb_no ?? result.data?.awb_no ?? result.awb ?? result.data?.awb ?? result.awb_number ?? result.data?.awb_number ?? "");
+}
+
+function extractFshipProviderId(id: string): string {
+  const stored = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+  const match = stored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
+  return String(match?.awb || match?.providerOrderId || id);
+}
+
+function extractFshipApiOrderId(id: string): string {
+  const stored = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+  const match = stored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
+  return String(match?.providerOrderId || id);
+}
+
+function mapFshipStatus(status?: string): Order["status"] {
+  const value = (status || "").toLowerCase().replace(/[\s-]+/g, "_");
+  if (value.includes("delivered")) return "delivered";
+  if (value.includes("out_for_delivery")) return "out_for_delivery";
+  if (value.includes("transit") || value.includes("dispatch")) return "in_transit";
+  if (value.includes("manifest")) return "pickup_initiated";
+  if (value.includes("book")) return "booked";
+  if (value.includes("cancel")) return "cancelled";
+  if (value.includes("rto")) return value.includes("delivered") ? "rto_delivered" : "rto_in_transit";
+  if (value.includes("exception") || value.includes("ndr")) return "ndr";
+  return "booked";
+}
+
+function findStoredFshipPickupAddress(id: string): StoredFshipPickupAddress | undefined {
+  return fshipApi
+    .readStoredWarehouses<StoredFshipPickupAddress>()
+    .find((address) => address.id === id || address.providerWarehouseId === id || String(address.warehouseId || "") === id);
+}
+
+async function resolveFshipPickupAddress(
+  pickupAddressId: string,
+): Promise<{ id: string; city: string; pincode: string }> {
+  if (/^\d+$/.test(pickupAddressId)) {
+    const stored = findStoredFshipPickupAddress(pickupAddressId);
+    return { id: pickupAddressId, city: String(stored?.city || ""), pincode: String(stored?.pincode || "") };
+  }
+
+  const address = findStoredFshipPickupAddress(pickupAddressId) || findStoredPickupAddress(pickupAddressId);
+  if (!address) return { id: pickupAddressId, city: "", pincode: "" };
+
+  const existingId = String((address as StoredFshipPickupAddress).providerWarehouseId || (address as StoredFshipPickupAddress).warehouseId || "");
+  if (/^\d+$/.test(existingId)) {
+    return { id: existingId, city: String(address.city || ""), pincode: String(address.pincode || "") };
+  }
+
+  const result = await fshipApi.addWarehouse({
+    warehouseId: 0,
+    warehouseName: String(address.nickname || `Warehouse ${Date.now()}`).slice(0, 80),
+    contactName: String(address.contactName || "Warehouse Manager"),
+    addressLine1: String(address.addressLine1 || ""),
+    addressLine2: String(address.addressLine2 || ""),
+    pincode: String(address.pincode || ""),
+    city: String(address.city || ""),
+    stateId: 0,
+    countryId: 1,
+    phoneNumber: String(address.phone || ""),
+    email: String(address.email || ""),
+  });
+  if (!result.status || !result.warehouseId) {
+    throw new Error(result.response || "LogixMitra warehouse registration failed");
+  }
+
+  const providerWarehouseId = String(result.warehouseId);
+  const warehouses = fshipApi.readStoredWarehouses<StoredFshipPickupAddress>();
+  const updated = {
+    ...address,
+    providerWarehouseId,
+    warehouseId: providerWarehouseId,
+  } as StoredFshipPickupAddress;
+  fshipApi.writeStoredWarehouses([updated, ...warehouses.filter((item) => item.id !== address.id)]);
+  return { id: providerWarehouseId, city: String(address.city || ""), pincode: String(address.pincode || "") };
+}
+
+function toFshipCreateForwardPayload(
+  data: CreateOrderPayload,
+  providerPickupAddress: { id: string },
+): FshipCreateForwardOrderPayload {
+  const selectedRate = data.rate || {};
+  const firstInvoice = data.invoices?.[0];
+  const shipmentWeightKg = data.orderType === "B2B"
+    ? kgFromGrams(data.weight)
+    : Math.max(kgFromGrams(data.weight), 0.5);
+  const volumetric = volumetricKg(data.length, data.breadth, data.height);
+  const courierId = data.courierId.includes(":") ? data.courierId.split(":").pop() || data.courierId : data.courierId;
+  return {
+    customer_Name: data.buyerName,
+    customer_Mobile: data.buyerPhone,
+    customer_Emailid: data.buyerEmail || "",
+    customer_Address: data.address,
+    landMark: data.address2 || "",
+    customer_Address_Type: "Home",
+    customer_PinCode: data.pincode,
+    customer_City: data.city,
+    orderId: data.orderId,
+    invoice_Number: firstInvoice?.invoiceNumber || data.orderId,
+    payment_Mode: data.paymentType === "cod" ? 1 : 2,
+    express_Type: "surface",
+    is_Ndd: 0,
+    order_Amount: round(data.orderAmount, 2),
+    tax_Amount: 0,
+    extra_Charges: round(toNumber(selectedRate.otherCharges), 2),
+    total_Amount: round(data.orderAmount, 2),
+    cod_Amount: data.paymentType === "cod" ? round(data.codAmount, 2) : 0,
+    shipment_Weight: shipmentWeightKg,
+    shipment_Length: data.length || 1,
+    shipment_Width: data.breadth || 1,
+    shipment_Height: data.height || 1,
+    volumetric_Weight: volumetric,
+    latitude: 0,
+    longitude: 0,
+    pick_Address_ID: providerPickupAddress.id,
+    return_Address_ID: providerPickupAddress.id,
+    products: data.products.map((product, index) => ({
+      productId: product.hsn || `${data.orderId}-${index + 1}`,
+      productName: product.name,
+      unitPrice: round(product.unitPrice, 2),
+      quantity: product.quantity,
+      productCategory: "",
+      hsnCode: product.hsn || "",
+      sku: product.hsn || product.name.replace(/\s+/g, "-").toUpperCase().slice(0, 32),
+      taxRate: product.taxRate ?? 0,
+      productDiscount: 0,
+    })),
+    courierId,
+  };
+}
+
+async function createFshipOrder(data: CreateOrderPayload): Promise<Order> {
+  if (!isFshipApiConfigured()) {
+    throw new Error("Real shipment was not sent to LogixMitra. Configure VITE_FSHIP_SIGNATURE or VITE_LOGIXMITRA_PRIVATE_KEY, then redeploy.");
+  }
+
+  const providerPickupAddress = await resolveFshipPickupAddress(data.pickupAddressId);
+  const payload = toFshipCreateForwardPayload(data, providerPickupAddress);
+  const result = await fshipApi.createForwardOrder(payload);
+  if (result.status === false) throw new Error(result.response || "LogixMitra order creation failed");
+  const providerOrderId = String(result.apiorderid || `${data.orderId}-${Date.now()}`);
+  const awb = String(result.waybill || "");
+  const order = makeOrderFromPayload(data, providerOrderId, awb);
+  const updated: Order & { providerOrderId: string } = {
+    ...order,
+    id: providerOrderId,
+    status: awb ? "booked" : "processing",
+    serviceProvider: "logixmitra",
+    courierName: data.courierName || getCourierDisplayName(data.courierId),
+    providerOrderId,
+    awb,
+  };
+  const existing = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+  fshipApi.writeStoredOrders([updated, ...existing.filter((item) => item.id !== updated.id)]);
+  return updated;
+}
+
+function mapFshipTrackingEvents(providerOrderId: string, awb: string, data: FshipTrackingResponse): TrackingEvent[] {
+  const scans = data.trackingdata ?? [];
+  if (scans.length > 0) {
+    return scans.map((scan, index) => ({
+      id: `${awb}-${index}`,
+      orderId: providerOrderId,
+      awb,
+      statusCode: mapFshipStatus(scan.Status),
+      statusText: scan.Status || "Shipment update",
+      location: scan.Location,
+      remarks: scan.Remark,
+      source: "logixmitra",
+      eventTimestamp: scan.DateandTime,
+      createdAt: scan.DateandTime ? new Date(scan.DateandTime).toISOString() : new Date().toISOString(),
+    }));
+  }
+  const summary = data.summary;
+  return [{
+    id: `${awb}-latest`,
+    orderId: providerOrderId,
+    awb,
+    statusCode: mapFshipStatus(summary?.status),
+    statusText: summary?.status || data.response || "Shipment update",
+    location: summary?.location,
+    remarks: summary?.remark || data.response,
+    source: "logixmitra",
+    eventTimestamp: summary?.lastscandate || summary?.lastscanned,
+    createdAt: new Date().toISOString(),
+  }];
 }
 
 function toProviderCreateOrderPayload(
@@ -593,6 +793,10 @@ async function getProviderOrders(params?: OrderListParams): Promise<OrderListRes
 
 export const ordersApi = {
   create: async (data: CreateOrderPayload): Promise<Order> => {
+    if (isFshipServiceProvider(data.serviceProvider) || data.courierId.toLowerCase().includes("logixmitra")) {
+      return createFshipOrder(data);
+    }
+
     if (shouldUseCourierApi()) {
       if (!isCourierApiConfigured()) {
         throw new Error(
@@ -623,11 +827,40 @@ export const ordersApi = {
       return getProviderOrders(params);
     }
 
+    if (shouldUseFshipApi()) {
+      let orders = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+      if (params?.status) orders = orders.filter((order) => order.status === params.status);
+      if (params?.orderType) orders = orders.filter((order) => order.orderType === params.orderType);
+      if (params?.paymentType) orders = orders.filter((order) => order.paymentType === params.paymentType);
+      if (params?.search) {
+        const query = params.search.toLowerCase();
+        orders = orders.filter((order) =>
+          [order.orderId, order.awb, order.deliveryAddress.contactName, order.deliveryAddress.phone]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(query)),
+        );
+      }
+      const page = params?.page ?? 1;
+      const limit = params?.limit ?? 20;
+      const total = orders.length;
+      const start = (page - 1) * limit;
+      return {
+        orders: orders.slice(start, start + limit),
+        pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+        stats: buildStats(orders),
+      };
+    }
+
     const { data } = await api.get("/orders", { params });
     return data as OrderListResponse;
   },
 
   getById: async (id: string): Promise<Order> => {
+    const fshipMatch = fshipApi
+      .readStoredOrders<Order & { providerOrderId: string }>()
+      .find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
+    if (fshipMatch) return fshipMatch;
+
     if (shouldUseCourierApi()) {
       const stored = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
       const match = stored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id);
@@ -655,6 +888,28 @@ export const ordersApi = {
   // ── New lifecycle APIs ──
 
   manifestOrders: async (orderIds: string[]): Promise<ManifestResponse> => {
+    const storedFshipOrders = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+    const fshipOrders = orderIds
+      .map((id) => storedFshipOrders.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id))
+      .filter((order): order is Order & { providerOrderId: string } => Boolean(order));
+    if (fshipOrders.length === orderIds.length && fshipOrders.length > 0) {
+      const result = await fshipApi.registerPickup(fshipOrders.map((order) => order.awb).filter(Boolean));
+      if (!result.status) {
+        return {
+          ordersProcessed: 0,
+          errors: fshipOrders.map((order) => ({ awb: order.awb || order.orderId, error: result.response || "LogixMitra pickup registration failed" })),
+        };
+      }
+      const now = new Date().toISOString();
+      const updated = storedFshipOrders.map((order) =>
+        fshipOrders.some((item) => item.id === order.id)
+          ? { ...order, status: "pickup_initiated" as const, pickupRequestedAt: now, updatedAt: now }
+          : order,
+      );
+      fshipApi.writeStoredOrders(updated);
+      return { ordersProcessed: fshipOrders.length, errors: [] };
+    }
+
     if (shouldUseCourierApi()) {
       return {
         ordersProcessed: 0,
@@ -760,6 +1015,15 @@ export const ordersApi = {
   },
 
   cancelOrder: async (id: string, reason?: string): Promise<Order> => {
+    const fshipStored = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+    const fshipOrder = fshipStored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
+    if (fshipOrder) {
+      await fshipApi.cancelOrder(extractFshipProviderId(id), reason);
+      const updated = { ...fshipOrder, status: "cancelled" as const, cancelledAt: new Date().toISOString() };
+      fshipApi.writeStoredOrders([updated, ...fshipStored.filter((item) => item.id !== updated.id)]);
+      return updated;
+    }
+
     if (shouldUseCourierApi()) {
       const providerOrderId = extractProviderOrderId(id);
       await courierApi.cancelOrder(providerOrderId);
@@ -775,6 +1039,14 @@ export const ordersApi = {
   },
 
   getTracking: async (id: string): Promise<TrackingEvent[]> => {
+    const fshipAwb = extractFshipProviderId(id);
+    const fshipStored = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+    const hasFshipOrder = fshipStored.some((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
+    if (hasFshipOrder) {
+      const history = await fshipApi.trackingHistory(fshipAwb).catch(() => fshipApi.shipmentSummary(fshipAwb));
+      return mapFshipTrackingEvents(extractFshipApiOrderId(id), fshipAwb, history);
+    }
+
     if (shouldUseCourierApi()) {
       const providerOrderId = extractProviderOrderId(id);
       const data = await courierApi.trackOrder(providerOrderId);

@@ -329,8 +329,16 @@ export const locationsApi = {
       return filterLocations(await getStaticLocations(), params);
     }
 
-    const { data } = await api.get("/locations", { params });
-    return data as ListLocationsResponse;
+    try {
+      const { data } = await api.get("/locations", { params });
+      const response = data as ListLocationsResponse;
+      if (Array.isArray(response.locations) && (response.locations.length > 0 || (response.pagination?.total ?? 0) > 0)) {
+        return response;
+      }
+    } catch {
+      // Static admin deployments can run before the API has pincode seed data.
+    }
+    return filterLocations(await getStaticLocations(), params);
   },
 
   create: async (
@@ -428,7 +436,13 @@ export const locationsApi = {
       throw new Error("Pincode not found in seeded locations");
     }
 
-    const { data } = await api.get(`/locations/pincode-lookup/${pincode}`);
-    return data as PincodeLookupResponse;
+    try {
+      const { data } = await api.get(`/locations/pincode-lookup/${pincode}`);
+      return data as PincodeLookupResponse;
+    } catch {
+      const location = (await getStaticLocations()).find((item) => item.pincode === pincode);
+      if (location) return { city: location.city, state: location.state };
+      throw new Error("Pincode not found in seeded locations");
+    }
   },
 };

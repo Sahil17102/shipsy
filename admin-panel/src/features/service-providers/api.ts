@@ -84,6 +84,35 @@ function defaultCredentials(): ProviderCredentialsResponse {
   };
 }
 
+function logixMitraCredentials(): ProviderCredentialsResponse {
+  const fields: CredentialFieldDef[] = [
+    { key: "baseUrl", label: "Base URL", type: "text", required: true },
+    { key: "publicKey", label: "Public Key", type: "text", required: false },
+    { key: "signature", label: "Private Key / Signature", type: "password", required: true },
+  ];
+  return {
+    b2c: {
+      fields,
+      description: "Used for live LogixMitra/FShip courier rates, shipment creation, pickup, cancellation, labels, and tracking.",
+      values: {
+        baseUrl: "https://api.logixmitra.com/api",
+        publicKey: "",
+        signature: "",
+      },
+    },
+    b2b: {
+      fields,
+      description: "B2B uses the same LogixMitra/FShip API credentials by default.",
+      values: {
+        baseUrl: "https://api.logixmitra.com/api",
+        publicKey: "",
+        signature: "",
+      },
+      sameAsB2c: true,
+    },
+  };
+}
+
 function isListProvidersResponse(data: unknown): data is ListProvidersResponse {
   const value = data as Partial<ListProvidersResponse> | null;
   return Boolean(
@@ -100,7 +129,25 @@ function readStaticProviders(): ProviderListItem[] {
     (provider) => !["teampafex", "shadowfax"].includes(provider.serviceProvider.toLowerCase()),
   );
   if (filtered.length !== providers.length) writeStaticProviders(filtered);
-  return filtered;
+  const hasLogixMitra = filtered.some((provider) => provider.serviceProvider.toLowerCase() === "logixmitra");
+  if (hasLogixMitra) return filtered;
+  return [
+    {
+      id: "sp-logixmitra",
+      serviceProvider: "logixmitra",
+      displayName: "LogixMitra",
+      logoUrl: "",
+      totalCouriers: 2,
+      enabledCouriers: 2,
+      serviceProviderDisplayName: "LogixMitra",
+      isEnabled: true,
+      b2c: { configured: true },
+      b2b: { configured: true, sameAsB2c: true },
+      status: "active",
+      updatedAt: nowIso(),
+    },
+    ...filtered,
+  ];
 }
 
 function writeStaticProviders(providers: ProviderListItem[]): ProviderListItem[] {
@@ -109,7 +156,7 @@ function writeStaticProviders(providers: ProviderListItem[]): ProviderListItem[]
 
 function readStaticCredentials(providerId: string): ProviderCredentialsResponse {
   const all = readJson<Record<string, ProviderCredentialsResponse>>(STATIC_SERVICE_PROVIDER_CREDS_KEY, {});
-  const fallback = defaultCredentials();
+  const fallback = providerId === "sp-logixmitra" ? logixMitraCredentials() : defaultCredentials();
   const creds = all[providerId] ?? fallback;
   const merged: ProviderCredentialsResponse = {
     b2c: { ...fallback.b2c, ...creds.b2c, values: { ...fallback.b2c.values, ...creds.b2c?.values } },

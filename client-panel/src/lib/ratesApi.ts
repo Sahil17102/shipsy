@@ -5,6 +5,12 @@ import {
   type CourierPackagePayload,
   type CourierShippingRate,
 } from "./courierApi";
+import {
+  fshipApi,
+  isFshipApiConfigured,
+  shouldUseFshipApi,
+  type FshipShipmentRate,
+} from "./fshipApi";
 
 export interface DelhiveryRate {
   total_amount: number;
@@ -224,6 +230,7 @@ function makeFallbackB2cRates(params: AvailableCouriersParams): AvailableCourier
   const cod = codCharge(params.paymentType, params.orderAmount);
   const options = [
     { courierId: "80", name: "DLVY Standard", serviceProvider: "teampafex", displayName: "Teampafex", freightPerSlab: 54, rtoPerSlab: 48 },
+    { courierId: "logixmitra:surface", name: "LogixMitra Surface", serviceProvider: "logixmitra", displayName: "LogixMitra", freightPerSlab: 52, rtoPerSlab: 46 },
     { courierId: "shadowfax:forward", name: "Shadowfax", serviceProvider: "shadowfax", displayName: "Shadowfax", freightPerSlab: 49, rtoPerSlab: 44 },
   ];
 
@@ -252,6 +259,46 @@ function makeFallbackB2cRates(params: AvailableCouriersParams): AvailableCourier
       tag: index === 1 ? "economy" : undefined,
     };
   });
+}
+
+function makeFallbackFshipB2bRates(params: B2bAvailableCouriersParams): B2bAvailableCourier[] {
+  const packages = params.packages.map((pkg) => ({
+    deadWeight: pkg.weight,
+    volumetricWeight: volumetricKg(pkg.length, pkg.breadth, pkg.height),
+    billableWeight: Math.max(pkg.weight, volumetricKg(pkg.length, pkg.breadth, pkg.height)),
+  }));
+  const billableWeight = Math.max(1, round(packages.reduce((sum, pkg) => sum + pkg.billableWeight, 0), 3));
+  const baseFreight = round(Math.max(210, billableWeight * 17));
+  const cod = codCharge(params.paymentType, params.orderAmount);
+  const gst = round((baseFreight + cod) * 0.18);
+  const total = round(baseFreight + cod + gst);
+
+  return [{
+    courierId: "logixmitra:b2b-surface",
+    name: "LogixMitra Surface",
+    serviceProvider: "logixmitra",
+    serviceProviderDisplayName: "LogixMitra",
+    logo: null,
+    zone: {
+      originCode: params.origin,
+      originName: params.origin,
+      destinationCode: params.destination,
+      destinationName: params.destination,
+    },
+    billableWeight,
+    packages,
+    rate: {
+      baseFreight,
+      overheads: [
+        ...(cod > 0 ? [{ code: "COD", name: "COD Charges", type: "fixed", amount: cod }] : []),
+        { code: "GST", name: "GST", type: "percent", amount: gst },
+      ],
+      rtoRate: round(baseFreight * 0.8),
+      total,
+      billableWeight,
+      packages,
+    },
+  }];
 }
 
 function makeFallbackB2bRates(params: B2bAvailableCouriersParams): B2bAvailableCourier[] {
@@ -466,6 +513,138 @@ async function getCourierApiB2bRates(params: B2bAvailableCouriersParams): Promis
   });
 }
 
+async function enrichFshipRates(
+  rates: FshipShipmentRate[],
+): Promise<Array<FshipShipmentRate & { _courierId: string }>> {
+  const couriers = await fshipApi.getCouriers().catch(() => []);
+  return rates.map((rate, index) => {
+    const name = String(rate.courier_name || `LogixMitra ${index + 1}`).trim();
+    const match = couriers.find((courier) => {
+      const courierName = String(courier.courierName || "").trim().toLowerCase();
+      return courierName === name.toLowerCase() ||
+        courierName.includes(name.toLowerCase()) ||
+        name.toLowerCase().includes(courierName);
+    });
+    return { ...rate, _courierId: String(match?.courierId ?? `logixmitra:${serviceKey(name) || index + 1}`) };
+  });
+}
+
+async function getFshipRates(params: AvailableCouriersParams): Promise<AvailableCourier[]> {
+  const actualKg = kgFromGrams(params.weight);
+  const volKg = volumetricKg(params.length, params.breadth, params.height);
+  const chargeableKg = b2cChargeableKg(params.weight, params.length, params.breadth, params.height);
+  const response = await fshipApi.rateCalculator({
+    source_Pincode: params.origin,
+    destination_Pincode: params.destination,
+    payment_Mode: params.paymentType === "cod" ? "COD" : "P",
+    amount: params.orderAmount ?? 0,
+    express_Type: "surface",
+    shipment_Weight: actualKg,
+    shipment_Length: params.length || 0,
+    shipment_Width: params.breadth || 0,
+    shipment_Height: params.height || 0,
+    volumetric_Weight: volKg,
+  });
+
+  const rates = await enrichFshipRates(response.shipment_rates ?? []);
+  const totals = rates.map((r) =>
+    toNumber(r.shipping_charge) + toNumber(r.cod_charge) + toNumber(r.rto_charge),
+  );
+  const cheapest = totals.length ? Math.min(...totals) : null;
+
+  return rates.map((rate) => {
+    const freight = toNumber(rate.shipping_charge);
+    const cod = toNumber(rate.cod_charge);
+    const rto = toNumber(rate.rto_charge);
+    const total = round(freight + cod);
+    const mode = String(rate.service_mode || "surface").toLowerCase().includes("air") ? "air" : "surface";
+    return {
+      courierId: rate._courierId,
+      name: rate.courier_name || "LogixMitra",
+      serviceProvider: "logixmitra",
+      serviceProviderDisplayName: "LogixMitra",
+      logo: null,
+      mode,
+      zone: { code: "LM", name: "LogixMitra Live Courier" },
+      chargeableWeight: Math.ceil(chargeableKg * 1000),
+      minWeight: 500,
+      rate: {
+        forward: freight,
+        rto,
+        codCharges: cod,
+        otherCharges: 0,
+        freightCharge: freight,
+        totalCharge: total,
+      },
+      tag: total === cheapest ? "economy" : undefined,
+    };
+  });
+}
+
+async function getFshipB2bRates(params: B2bAvailableCouriersParams): Promise<B2bAvailableCourier[]> {
+  const totalWeight = round(params.packages.reduce((sum, pkg) => sum + (pkg.weight || 0), 0), 3);
+  const maxLength = Math.max(...params.packages.map((pkg) => pkg.length || 0), 0);
+  const maxBreadth = Math.max(...params.packages.map((pkg) => pkg.breadth || 0), 0);
+  const maxHeight = Math.max(...params.packages.map((pkg) => pkg.height || 0), 0);
+  const totalVolumetric = round(params.packages.reduce(
+    (sum, pkg) => sum + volumetricKg(pkg.length, pkg.breadth, pkg.height),
+    0,
+  ), 3);
+  const response = await fshipApi.rateCalculator({
+    source_Pincode: params.origin,
+    destination_Pincode: params.destination,
+    payment_Mode: params.paymentType === "cod" ? "COD" : "P",
+    amount: params.orderAmount ?? params.declaredValue ?? 0,
+    express_Type: "surface",
+    shipment_Weight: totalWeight,
+    shipment_Length: maxLength,
+    shipment_Width: maxBreadth,
+    shipment_Height: maxHeight,
+    volumetric_Weight: totalVolumetric,
+  });
+
+  const rates = await enrichFshipRates(response.shipment_rates ?? []);
+  const billableWeight = Math.max(totalWeight, totalVolumetric, 1);
+  const packages = params.packages.map((pkg) => ({
+    deadWeight: pkg.weight,
+    volumetricWeight: volumetricKg(pkg.length, pkg.breadth, pkg.height),
+    billableWeight: Math.max(pkg.weight, volumetricKg(pkg.length, pkg.breadth, pkg.height)),
+  }));
+  const totals = rates.map((r) => toNumber(r.shipping_charge) + toNumber(r.cod_charge));
+  const cheapest = totals.length ? Math.min(...totals) : null;
+
+  return rates.map((rate) => {
+    const freight = toNumber(rate.shipping_charge);
+    const cod = toNumber(rate.cod_charge);
+    const rto = toNumber(rate.rto_charge);
+    const total = round(freight + cod);
+    return {
+      courierId: rate._courierId,
+      name: rate.courier_name || "LogixMitra",
+      serviceProvider: "logixmitra",
+      serviceProviderDisplayName: "LogixMitra",
+      logo: null,
+      zone: {
+        originCode: params.origin,
+        originName: params.origin,
+        destinationCode: params.destination,
+        destinationName: params.destination,
+      },
+      billableWeight,
+      packages,
+      rate: {
+        baseFreight: freight,
+        overheads: cod > 0 ? [{ code: "COD", name: "COD Charges", type: "fixed", amount: cod }] : [],
+        rtoRate: rto,
+        total,
+        billableWeight,
+        packages,
+      },
+      tag: total === cheapest ? "economy" : undefined,
+    };
+  });
+}
+
 export const ratesApi = {
   getDelhiveryRate: async (params: DelhiveryRateParams): Promise<DelhiveryRate> => {
     const { data } = await api.get<DelhiveryRate>("/rates/delhivery", {
@@ -498,6 +677,18 @@ export const ratesApi = {
       return makeFallbackB2cRates(params);
     }
 
+    if (shouldUseFshipApi()) {
+      try {
+        if (isFshipApiConfigured()) {
+          const fshipRates = await getFshipRates(params);
+          if (fshipRates.length > 0) return fshipRates;
+        }
+      } catch {
+        // Keep order creation screen usable while credentials or CORS are being fixed.
+      }
+      return makeFallbackB2cRates(params).filter((item) => item.serviceProvider === "logixmitra");
+    }
+
     try {
       const { data } = await api.post<{ success: boolean; data: AvailableCourier[] }>(
         "/rates/available",
@@ -505,8 +696,11 @@ export const ratesApi = {
       );
       if (Array.isArray(data.data) && data.data.length > 0) {
         const seen = new Set(data.data.map((item) => item.courierId));
+        const fshipRates = isFshipApiConfigured() ? await getFshipRates(params).catch(() => []) : [];
+        fshipRates.forEach((item) => seen.add(item.courierId));
         return [
           ...data.data,
+          ...fshipRates,
           ...makeFallbackB2cRates(params).filter((item) => !seen.has(item.courierId)),
         ];
       }
@@ -534,12 +728,28 @@ export const ratesApi = {
       return makeFallbackB2bRates(params);
     }
 
+    if (shouldUseFshipApi()) {
+      try {
+        if (isFshipApiConfigured()) {
+          const couriers = await getFshipB2bRates(params);
+          if (couriers.length > 0) return couriers;
+        }
+      } catch {
+        // Keep B2B order flow visible while live API credentials are being fixed.
+      }
+      return makeFallbackFshipB2bRates(params);
+    }
+
     try {
       const { data } = await api.post<{ success: boolean; data: B2bAvailableCourier[] }>(
         "/rates/b2b/available",
         params,
       );
-      return Array.isArray(data.data) && data.data.length > 0 ? data.data : makeFallbackB2bRates(params);
+      if (Array.isArray(data.data) && data.data.length > 0) {
+        const fshipRates = isFshipApiConfigured() ? await getFshipB2bRates(params).catch(() => []) : [];
+        return [...data.data, ...fshipRates];
+      }
+      return makeFallbackB2bRates(params);
     } catch {
       return makeFallbackB2bRates(params);
     }

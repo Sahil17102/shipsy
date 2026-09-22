@@ -108,18 +108,18 @@ export default function ServiceProvidersPage() {
     {
       title: "B2C Setup",
       key: "b2c",
-      render: () => (
-        <span className="badge-muted inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md">
-          Not connected
+      render: (_, record) => (
+        <span className={`${record.b2c.configured ? "badge-success" : "badge-muted"} inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md`}>
+          {record.b2c.configured ? "Configured" : "Not connected"}
         </span>
       ),
     },
     {
       title: "B2B Setup",
       key: "b2b",
-      render: () => (
-        <span className="badge-muted inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md">
-          Not connected
+      render: (_, record) => (
+        <span className={`${record.b2b.configured ? "badge-success" : "badge-muted"} inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md`}>
+          {record.b2b.configured ? "Configured" : "Not connected"}
         </span>
       ),
     },
@@ -166,7 +166,7 @@ export default function ServiceProvidersPage() {
       <PageHeader
         icon={Truck}
         title="Service Providers"
-        subtitle="Local courier setup only. No courier API is connected."
+        subtitle="Manage live courier API providers and credentials."
         size="default"
         card={false}
         titleExtra={
@@ -184,8 +184,8 @@ export default function ServiceProvidersPage() {
 
       <div className="flex items-center gap-2 text-sm text-muted bg-primary-bg border border-primary/10 rounded-lg px-3.5 py-2.5">
         <Info size={15} className="text-primary shrink-0" />
-        <span className="hidden sm:inline">Courier API credentials and live provider integrations are disabled for now.</span>
-        <span className="sm:hidden">Courier API integrations are disabled for now.</span>
+        <span className="hidden sm:inline">LogixMitra/FShip and configured courier providers are available for live shipment flows.</span>
+        <span className="sm:hidden">Live courier integrations are available.</span>
       </div>
 
       <ResponsiveTable

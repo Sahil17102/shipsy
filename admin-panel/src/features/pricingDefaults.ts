@@ -22,6 +22,8 @@ export const DEFAULT_B2B_ZONES: B2bZone[] = [
 
 export function defaultCouriers(): CourierListItem[] {
   return [
+    makeCourier("logixmitra:surface", "LogixMitra Surface", "b2c", "logixmitra", "LogixMitra"),
+    makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra"),
     makeCourier("manual:80", "Standard Courier", "b2c"),
     makeCourier("manual:152", "B2B Freight", "b2b"),
     makeCourier("manual:161", "Local Express", "b2c"),
@@ -132,7 +134,7 @@ export function defaultB2bZoneRates(params?: {
   originZone?: string;
   destinationZone?: string;
 }): B2bZoneRate[] {
-  const courier = makeCourier("manual:152", "B2B Freight", "b2b");
+  const courier = makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra");
   const baseRates: Record<string, Record<string, number>> = {
     N: { N: 42, W: 52, S: 62, E: 58, NE: 78 },
     W: { N: 52, W: 44, S: 54, E: 62, NE: 82 },
@@ -192,7 +194,7 @@ export function defaultB2bPincodes(params?: {
   const west = DEFAULT_B2B_ZONES[1];
   const south = DEFAULT_B2B_ZONES[2];
   const east = DEFAULT_B2B_ZONES[3];
-  const courier = makeCourier("manual:152", "B2B Freight", "b2b");
+  const courier = makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra");
   const rows: B2bPincode[] = [
     makeB2bPincode("110001", "New Delhi", "Delhi", north, courier),
     makeB2bPincode("400001", "Mumbai", "Maharashtra", west, courier),
@@ -227,9 +229,9 @@ export function defaultB2bAdditionalCharges(params?: {
   courier?: string;
   plan?: string;
 }): B2bAdditionalCharge[] {
-  const courier = makeCourier("manual:152", "B2B Freight", "b2b");
+  const courier = makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra");
   const charge: B2bAdditionalCharge = {
-    id: "seed-b2b-additional-delhivery-b2b-basic",
+    id: "seed-b2b-additional-logixmitra-b2b-basic",
     plan: "basic",
     courier: {
       id: courier.id,
@@ -269,12 +271,18 @@ export function defaultB2bAdditionalCharges(params?: {
   return [charge];
 }
 
-function makeCourier(id: string, name: string, businessType: "b2b" | "b2c"): CourierListItem {
+function makeCourier(
+  id: string,
+  name: string,
+  businessType: "b2b" | "b2c",
+  serviceProvider = "manual",
+  serviceProviderDisplayName = "Manual Provider",
+): CourierListItem {
   return {
     id,
     name,
-    serviceProvider: "manual",
-    serviceProviderDisplayName: "Manual Provider",
+    serviceProvider,
+    serviceProviderDisplayName,
     courierType: "delivery",
     businessType: [businessType],
     isEnabled: true,
@@ -286,6 +294,13 @@ function makeCourier(id: string, name: string, businessType: "b2b" | "b2c"): Cou
 
 function defaultB2cPricing(): B2cPricingItem[] {
   return [
+    makeB2cPricing("logixmitra:surface", "LogixMitra Surface", "surface", [
+      [36, 30, 40, 2],
+      [44, 36, 40, 2],
+      [56, 46, 40, 2],
+      [70, 56, 40, 2],
+      [92, 72, 40, 2],
+    ], "logixmitra"),
     makeB2cPricing("manual:80", "Standard Courier", "surface", [
       [38, 32, 45, 2],
       [45, 38, 45, 2],
@@ -308,6 +323,7 @@ function makeB2cPricing(
   courierName: string,
   mode: "air" | "surface",
   zoneRates: Array<[number, number, number, number]>,
+  serviceProvider = "manual",
 ): B2cPricingItem {
   const weightSlabs = [
     { minWeight: 0, maxWeight: 500 },
@@ -321,7 +337,7 @@ function makeB2cPricing(
     courier: {
       id: courierId,
       name: courierName,
-      serviceProvider: "manual",
+      serviceProvider,
     },
     plan: "basic",
     mode,
