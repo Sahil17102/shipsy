@@ -10,9 +10,26 @@ import type {
   UserSummary,
 } from "./types";
 
-const useStaticData = import.meta.env.VITE_STATIC_DATA_ENABLED === "true";
+const useStaticData = import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
 const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
 const KYC_STATUSES = ["not_submitted", "pending", "approved", "rejected"] as const;
+const STATIC_TEAM_MEMBERS_KEY = "shipsy-static-team-members";
+
+function readStaticTeamMembers(): TeamMember[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const value = JSON.parse(localStorage.getItem(STATIC_TEAM_MEMBERS_KEY) || "[]");
+    return Array.isArray(value) ? value as TeamMember[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStaticTeamMembers(members: TeamMember[]): void {
+  if (typeof window !== "undefined") {
+    localStorage.setItem(STATIC_TEAM_MEMBERS_KEY, JSON.stringify(members));
+  }
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -284,10 +301,12 @@ export const usersApi = {
 
   toggleActive: async (id: string): Promise<{ message: string }> => {
     if (useStaticData) {
-      const users = readStaticUsers();
-      writeStaticUsers(users.map((user) =>
-        user.id === id ? { ...user, isActive: !user.isActive, updatedAt: new Date().toISOString() } : user,
-      ));
+      const users = await readUsersWithSharedRegistry();
+      const current = users.find((user) => user.id === id);
+      if (!current) throw new Error("User not found");
+      const updated = { ...current, isActive: !current.isActive, updatedAt: new Date().toISOString() };
+      writeStaticUsers(users.map((user) => user.id === id ? updated : user));
+      await writeUserToSharedRegistry(updated);
       return { message: "User updated" };
     }
 
@@ -318,7 +337,7 @@ export const usersApi = {
 
   listTeamMembers: async (id: string): Promise<ListTeamMembersResponse> => {
     if (useStaticData) {
-      return { members: [] };
+      return { members: readStaticTeamMembers().filter((member) => member.parentUserId === id) };
     }
 
     try {
@@ -370,6 +389,7 @@ export const usersApi = {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      writeStaticTeamMembers([member, ...readStaticTeamMembers()]);
       return { member };
     }
 
@@ -378,7 +398,12 @@ export const usersApi = {
   },
 
   deleteTeamMember: async (id: string, memberId: string): Promise<void> => {
-    if (useStaticData) return;
+    if (useStaticData) {
+      writeStaticTeamMembers(readStaticTeamMembers().filter(
+        (member) => !(member.parentUserId === id && member.id === memberId),
+      ));
+      return;
+    }
 
     await api.delete(`/users/${id}/team-members/${memberId}`);
   },
@@ -396,7 +421,7 @@ export const usersApi = {
 
   getSummary: async (id: string): Promise<UserSummary> => {
     if (useStaticData) {
-      const user = readStaticUsers().find((item) => item.id === id);
+      const user = (await readUsersWithSharedRegistry()).find((item) => item.id === id);
       if (!user) throw new Error("User not found");
       return {
         orders: {

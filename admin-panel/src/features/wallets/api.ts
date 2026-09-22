@@ -10,7 +10,8 @@ import type {
   WalletTransaction,
 } from "./types";
 
-const useStaticData = import.meta.env.VITE_STATIC_DATA_ENABLED === "true";
+const useStaticData = import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
+const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
 const STATIC_WALLET_TRANSACTIONS_KEY = "shipsy-static-wallet-transactions";
 const STATIC_WALLET_ID = "wallet-shipsy-demo-seller";
 
@@ -88,8 +89,8 @@ function balanceFor(userId: string, transactions = readStaticTransactions()): nu
     ), 0);
 }
 
-function walletForUser(userId: string): WalletListItem {
-  const user = readStaticUsers().find((item) => item.id === userId);
+function walletForUser(userId: string, sharedUser?: ReturnType<typeof readStaticUsers>[number]): WalletListItem {
+  const user = sharedUser ?? readStaticUsers().find((item) => item.id === userId);
   const createdAt = user?.createdAt ?? nowIso();
   return {
     id: `wallet-${userId}`,
@@ -105,6 +106,18 @@ function walletForUser(userId: string): WalletListItem {
     createdAt,
     updatedAt: nowIso(),
   };
+}
+
+async function sharedUserById(userId: string) {
+  const local = readStaticUsers().find((item) => item.id === userId);
+  if (local) return local;
+  try {
+    const response = await fetch(`${SHARED_API_BASE_URL}/sellers`, { cache: "no-store" });
+    const payload = await response.json() as { users?: ReturnType<typeof readStaticUsers> };
+    return payload.users?.find((user) => user.id === userId);
+  } catch {
+    return undefined;
+  }
 }
 
 function paginate<T>(items: T[], page = 1, limit = 20) {
@@ -154,7 +167,7 @@ export const walletsApi = {
 
   getByUserId: async (userId: string) => {
     if (useStaticData) {
-      return { wallet: walletForUser(userId) };
+      return { wallet: walletForUser(userId, await sharedUserById(userId)) };
     }
 
     const { data } = await api.get<{ wallet: WalletListItem }>(`/wallets/${userId}`);
@@ -206,7 +219,7 @@ export const walletsApi = {
       writeStaticTransactions(next);
       return {
         message: "Wallet adjusted",
-        wallet: walletForUser(userId),
+        wallet: walletForUser(userId, await sharedUserById(userId)),
         transaction,
       };
     }

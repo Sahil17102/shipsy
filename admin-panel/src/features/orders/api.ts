@@ -14,6 +14,17 @@ import type {
   ListExportJobsResponse,
 } from "./types";
 
+const useStaticData = import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
+
+function emptyOrderStats() {
+  return {
+    total: 0, created: 0, processing: 0, booked: 0, pickup_initiated: 0,
+    shipped: 0, in_transit: 0, out_for_delivery: 0, delivered: 0, ndr: 0,
+    rto_initiated: 0, rto_in_transit: 0, rto_delivered: 0, cancelled: 0,
+    lost: 0, totalRevenue: 0,
+  };
+}
+
 export interface OrderFiltersParams {
   search?: string;
   status?: string;
@@ -66,6 +77,11 @@ function withExpand<T extends { expand?: ExpandableOrderRelation[] }>(
 
 export const ordersApi = {
   list: async (params?: OrderFiltersParams): Promise<ListOrdersResponse> => {
+    if (useStaticData) {
+      const page = params?.page ?? 1;
+      const limit = params?.limit ?? 20;
+      return { orders: [], pagination: { page, limit, total: 0, totalPages: 1 }, stats: emptyOrderStats() };
+    }
     const { data } = await api.get("/orders", { params: withExpand(params) });
     return data as ListOrdersResponse;
   },
