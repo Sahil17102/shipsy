@@ -63,7 +63,7 @@ function writeJson<T>(key: string, value: T): T {
 }
 
 export function readStaticPlans(): Plan[] {
-  seedBasicPlan();
+  seedDefaultPlans();
   return readJson<Plan[]>(STATIC_PLANS_KEY, []);
 }
 
@@ -171,6 +171,53 @@ export function seedBasicPlan(): Plan {
   };
   writeStaticPlans([basicPlan, ...plans]);
   return basicPlan;
+}
+
+export function seedDefaultPlans(): Plan[] {
+  const basic = seedBasicPlan();
+  const plans = readJson<Plan[]>(STATIC_PLANS_KEY, []);
+  const createdAt = nowIso();
+  const defaults: Plan[] = [
+    basic,
+    {
+      id: "plan-gold",
+      name: "Gold",
+      slug: "gold",
+      description: "For growing sellers with higher monthly shipment volume.",
+      sortOrder: 2,
+      isDefault: false,
+      isActive: true,
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "plan-platinum",
+      name: "Platinum",
+      slug: "platinum",
+      description: "Advanced rates and controls for established businesses.",
+      sortOrder: 3,
+      isDefault: false,
+      isActive: true,
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "plan-diamond",
+      name: "Diamond",
+      slug: "diamond",
+      description: "Premium plan for high-volume shipping operations.",
+      sortOrder: 4,
+      isDefault: false,
+      isActive: true,
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ];
+  const bySlug = new Map(plans.map((plan) => [plan.slug, plan]));
+  defaults.forEach((plan) => {
+    if (!bySlug.has(plan.slug)) bySlug.set(plan.slug, plan);
+  });
+  return writeStaticPlans(Array.from(bySlug.values()));
 }
 
 export function seedAdmin(): User {
@@ -285,7 +332,7 @@ export function seedLocations(): LocationListItem[] {
 }
 
 export function ensureStaticSeeds(): void {
-  seedBasicPlan();
+  seedDefaultPlans();
   assignBasicPlan();
   seedAdmin();
   seedLocations();

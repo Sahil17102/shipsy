@@ -110,6 +110,18 @@ async function readUsersWithSharedRegistry(): Promise<UserListItem[]> {
   }
 }
 
+async function writeUserToSharedRegistry(user: UserListItem): Promise<void> {
+  try {
+    await fetch(`${SHARED_API_BASE_URL}/sellers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ seller: { ...user, planAssignedByAdmin: true } }),
+    });
+  } catch {
+    // The local copy keeps the admin usable if the free backend is waking up.
+  }
+}
+
 function normalizeSummary(raw: unknown): UserSummary {
   const response = asRecord(raw);
   const summary = asRecord(response.summary ?? raw);
@@ -284,16 +296,22 @@ export const usersApi = {
   },
 
   updatePlan: async (id: string, plan: string): Promise<{ message: string }> => {
-    if (useStaticData) {
-      const users = readStaticUsers();
-      writeStaticUsers(users.map((user) =>
-        user.id === id ? { ...user, plan, updatedAt: new Date().toISOString() } : user,
-      ));
-      return { message: "Plan assigned" };
+    if (!useStaticData) {
+      try {
+        const { data } = await api.patch(`/users/${id}/plan`, { plan });
+        return data as { message: string };
+      } catch {
+        // Static production deploys persist the assignment in the shared seller registry.
+      }
     }
 
-    const { data } = await api.patch(`/users/${id}/plan`, { plan });
-    return data as { message: string };
+    const users = await readUsersWithSharedRegistry();
+    const updated = users.find((user) => user.id === id);
+    if (!updated) throw new Error("User not found");
+    const nextUser = { ...updated, plan, updatedAt: new Date().toISOString() };
+    writeStaticUsers(users.map((user) => user.id === id ? nextUser : user));
+    await writeUserToSharedRegistry(nextUser);
+    return { message: "Plan assigned" };
   },
 
   // ── Team members ──

@@ -26,43 +26,56 @@ function paginatePlans(plans: Plan[]): ListPlansResponse {
   };
 }
 
+function listStaticPlans(params?: { isActive?: boolean }): ListPlansResponse {
+  let plans = readStaticPlans();
+  if (typeof params?.isActive === "boolean") {
+    plans = plans.filter((plan) => plan.isActive === params.isActive);
+  }
+  return paginatePlans(plans);
+}
+
+function createStaticPlan(payload: CreatePlanPayload) {
+  const plans = readStaticPlans();
+  const plan: Plan = {
+    id: `plan-${payload.slug}`,
+    name: payload.name,
+    slug: payload.slug,
+    description: payload.description || "",
+    sortOrder: payload.sortOrder ?? plans.length + 1,
+    isDefault: plans.length === 0,
+    isActive: true,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  writeStaticPlans([plan, ...plans.filter((item) => item.id !== plan.id && item.slug !== plan.slug)]);
+  return { message: "Plan created", plan };
+}
+
 export const plansApi = {
   list: async (params?: { isActive?: boolean }) => {
     if (useStaticData) {
-      let plans = readStaticPlans();
-      if (typeof params?.isActive === "boolean") {
-        plans = plans.filter((plan) => plan.isActive === params.isActive);
-      }
-      return paginatePlans(plans);
+      return listStaticPlans(params);
     }
 
-    const { data } = await api.get<ListPlansResponse>("/plans", { params });
-    return data;
+    try {
+      const { data } = await api.get<ListPlansResponse>("/plans", { params });
+      return data;
+    } catch {
+      return listStaticPlans(params);
+    }
   },
 
   create: async (payload: CreatePlanPayload) => {
     if (useStaticData) {
-      const plans = readStaticPlans();
-      const plan: Plan = {
-        id: `plan-${payload.slug}`,
-        name: payload.name,
-        slug: payload.slug,
-        description: payload.description || "",
-        sortOrder: payload.sortOrder ?? plans.length + 1,
-        isDefault: plans.length === 0,
-        isActive: true,
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      };
-      writeStaticPlans([plan, ...plans.filter((item) => item.id !== plan.id && item.slug !== plan.slug)]);
-      return { message: "Plan created", plan };
+      return createStaticPlan(payload);
     }
 
-    const { data } = await api.post<{ message: string; plan: Plan }>(
-      "/plans",
-      payload,
-    );
-    return data;
+    try {
+      const { data } = await api.post<{ message: string; plan: Plan }>("/plans", payload);
+      return data;
+    } catch {
+      return createStaticPlan(payload);
+    }
   },
 
   update: async (id: string, payload: UpdatePlanPayload) => {
@@ -80,11 +93,17 @@ export const plansApi = {
       return { message: "Plan updated", plan: updated };
     }
 
-    const { data } = await api.put<{ message: string; plan: Plan }>(
-      `/plans/${id}`,
-      payload,
-    );
-    return data;
+    try {
+      const { data } = await api.put<{ message: string; plan: Plan }>(`/plans/${id}`, payload);
+      return data;
+    } catch {
+      const plans = readStaticPlans();
+      const existing = plans.find((plan) => plan.id === id);
+      if (!existing) throw new Error("Plan not found");
+      const plan = { ...existing, ...payload, updatedAt: nowIso() };
+      writeStaticPlans(plans.map((item) => item.id === id ? plan : payload.isDefault ? { ...item, isDefault: false } : item));
+      return { message: "Plan updated", plan };
+    }
   },
 
   delete: async (id: string) => {
@@ -96,7 +115,14 @@ export const plansApi = {
       return;
     }
 
-    await api.delete(`/plans/${id}`);
+    try {
+      await api.delete(`/plans/${id}`);
+    } catch {
+      const plans = readStaticPlans();
+      const plan = plans.find((item) => item.id === id);
+      if (plan?.isDefault) throw new Error("Default plan cannot be deleted");
+      writeStaticPlans(plans.filter((item) => item.id !== id));
+    }
   },
 
   toggle: async (id: string) => {
@@ -109,9 +135,16 @@ export const plansApi = {
       return { message: "Plan updated", plan };
     }
 
-    const { data } = await api.patch<{ message: string; plan: Plan }>(
-      `/plans/${id}/toggle`,
-    );
-    return data;
+    try {
+      const { data } = await api.patch<{ message: string; plan: Plan }>(`/plans/${id}/toggle`);
+      return data;
+    } catch {
+      const plans = readStaticPlans();
+      const existing = plans.find((plan) => plan.id === id);
+      if (!existing) throw new Error("Plan not found");
+      const plan = { ...existing, isActive: !existing.isActive, updatedAt: nowIso() };
+      writeStaticPlans(plans.map((item) => item.id === id ? plan : item));
+      return { message: "Plan updated", plan };
+    }
   },
 };

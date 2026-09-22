@@ -40,6 +40,10 @@ export async function POST(request: Request): Promise<Response> {
 
     const current = sellerStore.get(id) ?? { id };
     const next = { ...current, ...record, id, updatedAt: new Date().toISOString() };
+    if (current.planAssignedByAdmin === true && record.planAssignedByAdmin !== true) {
+      next.plan = current.plan;
+      next.planAssignedByAdmin = true;
+    }
     sellerStore.set(id, next);
 
     return Response.json({ user: next }, { status: 201, headers: corsHeaders(request) });
