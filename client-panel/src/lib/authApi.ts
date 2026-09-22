@@ -111,7 +111,11 @@ function makeShipsyUser(identifier?: string, onboardingComplete = false): User {
 export const authApi = {
   getSession: async (): Promise<User | null> => {
     const user = readUser();
-    if (user) setAccessToken("static-client-token");
+    if (user) {
+      setAccessToken("static-client-token");
+      readAccounts().forEach((account) => mirrorClientSellerToAdmin(withOnboardingState(account)));
+      mirrorClientSellerToAdmin(user);
+    }
     return user;
   },
 

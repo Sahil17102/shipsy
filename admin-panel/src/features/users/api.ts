@@ -11,6 +11,7 @@ import type {
 } from "./types";
 
 const useStaticData = import.meta.env.VITE_STATIC_DATA_ENABLED === "true";
+const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
 const KYC_STATUSES = ["not_submitted", "pending", "approved", "rejected"] as const;
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -85,6 +86,28 @@ function normalizeUser(raw: unknown): UserListItem {
     createdAt: nullableString(user.createdAt) ?? now,
     updatedAt: nullableString(user.updatedAt) ?? nullableString(user.createdAt) ?? now,
   };
+}
+
+function mergeUsers(localUsers: UserListItem[], sharedUsers: UserListItem[]): UserListItem[] {
+  const users = new Map(localUsers.map((user) => [user.id, normalizeUser(user)]));
+  sharedUsers.forEach((user) => users.set(user.id, normalizeUser(user)));
+  return Array.from(users.values()).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+async function readUsersWithSharedRegistry(): Promise<UserListItem[]> {
+  const localUsers = readStaticUsers();
+  try {
+    const response = await fetch(`${SHARED_API_BASE_URL}/sellers`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) return localUsers;
+    const payload = asRecord(await response.json());
+    const sharedUsers = Array.isArray(payload.users) ? payload.users.map(normalizeUser) : [];
+    return mergeUsers(localUsers, sharedUsers);
+  } catch {
+    return localUsers;
+  }
 }
 
 function normalizeSummary(raw: unknown): UserSummary {
@@ -202,7 +225,7 @@ export const usersApi = {
     sortOrder?: string;
   }): Promise<ListUsersResponse> => {
     if (useStaticData) {
-      return filterUsers(readStaticUsers(), params);
+      return filterUsers(await readUsersWithSharedRegistry(), params);
     }
 
     try {
@@ -210,7 +233,7 @@ export const usersApi = {
       const response = data as ListUsersResponse;
       const users = Array.isArray(response.users) ? response.users.map(normalizeUser) : [];
       if (users.length === 0) {
-        return filterUsers(readStaticUsers(), params);
+        return filterUsers(await readUsersWithSharedRegistry(), params);
       }
       return {
         ...response,
@@ -224,13 +247,13 @@ export const usersApi = {
         },
       };
     } catch {
-      return filterUsers(readStaticUsers(), params);
+      return filterUsers(await readUsersWithSharedRegistry(), params);
     }
   },
 
   getById: async (id: string): Promise<{ user: UserListItem }> => {
     if (useStaticData) {
-      const user = readStaticUsers().find((item) => item.id === id);
+      const user = (await readUsersWithSharedRegistry()).find((item) => item.id === id);
       if (!user) throw new Error("User not found");
       return { user: normalizeUser(user) };
     }
@@ -242,7 +265,7 @@ export const usersApi = {
     } catch {
       // Static admin deploys keep seller data locally.
     }
-    const user = readStaticUsers().find((item) => item.id === id);
+    const user = (await readUsersWithSharedRegistry()).find((item) => item.id === id);
     if (!user) throw new Error("User not found");
     return { user: normalizeUser(user) };
   },

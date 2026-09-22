@@ -3,6 +3,7 @@ import type { User } from "@/contexts/AuthContext";
 export const ADMIN_STATIC_USERS_KEY = "shipsy-static-users";
 export const CLIENT_COMPANY_PROFILE_KEY = "shipsy-client-company-profile";
 export const CLIENT_KYC_KEY = "shipsy-client-kyc";
+const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
 
 type ClientCompanyProfile = {
   businessName?: string | null;
@@ -63,6 +64,17 @@ function writeJson<T>(key: string, value: T): void {
   }
 }
 
+function syncSellerToSharedApi(seller: AdminSeller): void {
+  void fetch(`${SHARED_API_BASE_URL}/sellers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ seller }),
+    keepalive: true,
+  }).catch(() => {
+    // Local client data remains usable while the shared service wakes up or redeploys.
+  });
+}
+
 function buildName(user: User): string | null {
   return user.name ?? ([user.firstName, user.lastName].filter(Boolean).join(" ") || null);
 }
@@ -115,4 +127,5 @@ export function mirrorClientSellerToAdmin(user: User, profile?: ClientCompanyPro
   };
 
   writeJson(ADMIN_STATIC_USERS_KEY, [nextSeller, ...sellers.filter((seller) => seller.id !== user.id)]);
+  syncSellerToSharedApi(nextSeller);
 }
