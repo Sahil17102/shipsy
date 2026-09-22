@@ -109,15 +109,15 @@ function walletForUser(userId: string, sharedUser?: ReturnType<typeof readStatic
 }
 
 async function sharedUserById(userId: string) {
-  const local = readStaticUsers().find((item) => item.id === userId);
-  if (local) return local;
   try {
     const response = await fetch(`${SHARED_API_BASE_URL}/sellers`, { cache: "no-store" });
     const payload = await response.json() as { users?: ReturnType<typeof readStaticUsers> };
-    return payload.users?.find((user) => user.id === userId);
+    const shared = payload.users?.find((user) => user.id === userId);
+    if (shared) return shared;
   } catch {
-    return undefined;
+    // Fall back to the local seller cache while the shared service wakes up.
   }
+  return readStaticUsers().find((item) => item.id === userId);
 }
 
 function paginate<T>(items: T[], page = 1, limit = 20) {

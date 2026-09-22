@@ -50,6 +50,8 @@ export function UserProfileHeader({ user, kycStatus }: UserProfileHeaderProps) {
   const displayName =
     user.name ||
     [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+    user.email ||
+    user.phone ||
     "Unknown User";
   const initials =
     displayName !== "Unknown User"

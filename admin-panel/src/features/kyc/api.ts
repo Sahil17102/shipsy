@@ -30,15 +30,15 @@ function kycForUser(userId: string, status: KycStatus): AdminKycResponse {
 }
 
 async function sharedUserById(userId: string): Promise<UserListItem | undefined> {
-  const local = readStaticUsers().find((user) => user.id === userId);
-  if (local) return local;
   try {
     const response = await fetch(`${SHARED_API_BASE_URL}/sellers`, { cache: "no-store" });
     const payload = await response.json() as { users?: UserListItem[] };
-    return payload.users?.find((user) => user.id === userId);
+    const shared = payload.users?.find((user) => user.id === userId);
+    if (shared) return shared;
   } catch {
-    return undefined;
+    // Fall back to the admin's local cache while the shared service wakes up.
   }
+  return readStaticUsers().find((user) => user.id === userId);
 }
 
 async function updateStaticKyc(userId: string, status: KycStatus): Promise<AdminKycResponse> {
