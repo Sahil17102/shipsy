@@ -28,7 +28,7 @@ export function SidebarUserMenu({ collapsed }: SidebarUserMenuProps) {
   const handleLogout = async () => {
     setOpen(false);
     await logout();
-    navigate("/");
+    navigate("/signup", { replace: true });
   };
 
   const initials = user?.name

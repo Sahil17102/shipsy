@@ -12,7 +12,6 @@ import { OtpVerificationStep } from "@/components/auth/OtpVerificationStep";
 // ── Constants ──
 
 const RESEND_COOLDOWN = 30; // seconds
-const DEFAULT_OTP_IDENTIFIER = "client@shipsy.com";
 
 // ── Types ──
 
@@ -26,13 +25,13 @@ export function SignUpPage() {
   const { login, user } = useAuth();
 
   // OTP flow state
-  const [step, setStep] = useState<AuthStep>("otp");
-  const [identifier, setIdentifier] = useState(DEFAULT_OTP_IDENTIFIER);
+  const [step, setStep] = useState<AuthStep>("identifier");
+  const [identifier, setIdentifier] = useState("");
   const [isNewUser, setIsNewUser] = useState(true);
   const [resendTimer, setResendTimer] = useState(RESEND_COOLDOWN);
 
   // Login method
-  const [loginMethod, setLoginMethod] = useState<LoginMethod>("otp");
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>("password");
 
   const sendOtpMutation = useSendOtp();
   const verifyOtpMutation = useVerifyOtp();
