@@ -79,22 +79,24 @@ export function seedBasicPlan(): Plan {
 }
 
 export function seedAdmin(): User {
+  const existing = readJson<User | null>(STATIC_ADMIN_KEY, null);
   const admin: User = {
     id: "demo-admin-user",
-    email: "admin@shipsy.in",
-    phone: null,
-    name: "Demo Admin",
-    firstName: "Demo",
-    lastName: "Admin",
+    email: existing?.email ?? "admin@shipsy.in",
+    phone: existing?.phone ?? null,
+    name: existing?.name ?? "Demo Admin",
+    firstName: existing?.firstName ?? "Demo",
+    lastName: existing?.lastName ?? "Admin",
     role: "superadmin",
-    designation: "Operations Lead",
-    roleLabel: "Superadmin",
-    assignedSellerIds: ["shipsy-demo-seller"],
-    permissions: [],
-    isVerified: true,
-    onboardingComplete: true,
+    designation: existing?.designation ?? "Operations Lead",
+    roleLabel: existing?.roleLabel ?? "Superadmin",
+    assignedSellerIds: existing?.assignedSellerIds?.length ? existing.assignedSellerIds : ["shipsy-demo-seller"],
+    permissions: existing?.permissions ?? [],
+    isVerified: existing?.isVerified ?? true,
+    onboardingComplete: existing?.onboardingComplete ?? true,
   };
-  return writeJson(STATIC_ADMIN_ACCOUNT_KEY, admin);
+  writeJson(STATIC_ADMIN_ACCOUNT_KEY, admin);
+  return writeJson(STATIC_ADMIN_KEY, admin);
 }
 
 export function assignBasicPlan(): UserListItem {
