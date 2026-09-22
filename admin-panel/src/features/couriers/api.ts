@@ -36,11 +36,12 @@ function toResponse(couriers: ListCouriersResponse["couriers"], params?: ListCou
 
 export const couriersApi = {
   list: async (params?: ListCouriersParams): Promise<ListCouriersResponse> => {
+    try {
+      const data = await sharedRequest();
+      if (Array.isArray(data.couriers)) return toResponse(data.couriers, params);
+    } catch { /* Fall through to the configured admin API or seeded data. */ }
+
     if (useStaticCourierData) {
-      try {
-        const data = await sharedRequest();
-        if (Array.isArray(data.couriers)) return toResponse(data.couriers, params);
-      } catch { /* Use seeded data while the shared service wakes up. */ }
       return defaultCourierResponse(params);
     }
 
@@ -53,24 +54,24 @@ export const couriersApi = {
   },
 
   create: async (payload: CreateCourierPayload): Promise<{ id: string; name: string; serviceProvider: string }> => {
-    if (useStaticCourierData) return (await sharedRequest({ ...payload })).courier;
+    try { return (await sharedRequest({ ...payload })).courier; } catch { /* Try the admin API below. */ }
     const { data } = await api.post("/couriers", payload);
     return data.courier as { id: string; name: string; serviceProvider: string };
   },
 
   update: async (id: string, payload: UpdateCourierPayload): Promise<{ id: string; name: string; serviceProvider: string }> => {
-    if (useStaticCourierData) return (await sharedRequest({ action: "update", id, ...payload })).courier;
+    try { return (await sharedRequest({ action: "update", id, ...payload })).courier; } catch { /* Try the admin API below. */ }
     const { data } = await api.patch(`/couriers/${id}`, payload);
     return data.courier as { id: string; name: string; serviceProvider: string };
   },
 
   delete: async (id: string): Promise<void> => {
-    if (useStaticCourierData) { await sharedRequest({ action: "delete", id }); return; }
+    try { await sharedRequest({ action: "delete", id }); return; } catch { /* Try the admin API below. */ }
     await api.delete(`/couriers/${id}`);
   },
 
   toggle: async (id: string): Promise<{ message: string }> => {
-    if (useStaticCourierData) { await sharedRequest({ action: "toggle", id }); return { message: "Courier status updated" }; }
+    try { await sharedRequest({ action: "toggle", id }); return { message: "Courier status updated" }; } catch { /* Try the admin API below. */ }
     const { data } = await api.patch(`/couriers/${id}/toggle`);
     return data as { message: string };
   },
