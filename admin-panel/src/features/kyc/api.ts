@@ -3,7 +3,7 @@ import { readStaticUsers, writeStaticUsers } from "@/lib/staticSeeds";
 import type { UserListItem } from "@/features/users/types";
 import type { AdminKycResponse, DocumentField, KycRecord, KycStatus } from "./types";
 
-const useStaticData = import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
+const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
 const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
 
 function documentFor(status: KycStatus): DocumentField {

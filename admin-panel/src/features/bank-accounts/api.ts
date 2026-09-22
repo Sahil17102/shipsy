@@ -1,7 +1,7 @@
 import { api } from "@/lib/api";
 import type { BankAccountsResponse, BankAccountResponse } from "./types";
 
-const useStaticData = import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
+const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
 
 export const adminBankAccountApi = {
   listByUser: async (userId: string): Promise<BankAccountsResponse> => {

@@ -3,7 +3,7 @@ import { readStaticUsers } from "@/lib/staticSeeds";
 import type { UserListItem } from "@/features/users/types";
 import type { PickupAddressesResponse } from "./types";
 
-const useStaticData = import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
+const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
 const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
 
 async function sharedUserById(userId: string): Promise<UserListItem | undefined> {

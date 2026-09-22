@@ -14,7 +14,7 @@ import type {
   ListExportJobsResponse,
 } from "./types";
 
-const useStaticData = import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
+const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
 
 function emptyOrderStats() {
   return {
