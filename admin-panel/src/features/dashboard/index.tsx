@@ -106,7 +106,11 @@ function StatCard({
   color: string;
 }) {
   return (
-    <Card className="relative !border-border overflow-hidden" styles={{ body: { padding: "14px 16px" } }}>
+    <Card
+      className="admin-metric-card relative !border-border overflow-hidden"
+      style={{ "--metric-color": color } as React.CSSProperties}
+      styles={{ body: { padding: "14px 16px" } }}
+    >
       <div className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: color }} />
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
