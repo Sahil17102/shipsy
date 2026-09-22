@@ -3,6 +3,7 @@ import type { User } from "@/contexts/AuthContext";
 export const ADMIN_STATIC_USERS_KEY = "shipsy-static-users";
 export const CLIENT_COMPANY_PROFILE_KEY = "shipsy-client-company-profile";
 export const CLIENT_KYC_KEY = "shipsy-client-kyc";
+export const DEMO_APPROVED_KYC_EMAIL = "sahilmittal1920@gmail.com";
 const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
 
 type ClientCompanyProfile = {
@@ -85,8 +86,13 @@ function buildBusinessName(user: User, profile?: ClientCompanyProfile | null): s
   return name ? `${name} Store` : user.email ?? user.phone ?? "New Seller";
 }
 
-function readKycStatus(): AdminSeller["kycStatus"] {
-  const kyc = readJson<ClientKyc | null>(CLIENT_KYC_KEY, null);
+export function isDemoApprovedKycUser(user: Pick<User, "email"> | null): boolean {
+  return user?.email?.trim().toLowerCase() === DEMO_APPROVED_KYC_EMAIL;
+}
+
+function readKycStatus(user: User): AdminSeller["kycStatus"] {
+  if (isDemoApprovedKycUser(user)) return "approved";
+  const kyc = readJson<ClientKyc | null>(`${CLIENT_KYC_KEY}:${user.id}`, null);
   return kyc?.status ?? "not_submitted";
 }
 
@@ -94,7 +100,7 @@ export function mirrorClientSellerToAdmin(user: User, profile?: ClientCompanyPro
   if (typeof window === "undefined") return;
 
   const savedProfile = profile ?? readJson<ClientCompanyProfile | null>(CLIENT_COMPANY_PROFILE_KEY, null);
-  const kycStatus = readKycStatus();
+  const kycStatus = readKycStatus(user);
   const sellers = readJson<AdminSeller[]>(ADMIN_STATIC_USERS_KEY, []);
   const current = sellers.find((seller) => seller.id === user.id);
   const now = new Date().toISOString();

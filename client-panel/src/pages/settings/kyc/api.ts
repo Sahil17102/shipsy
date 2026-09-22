@@ -1,11 +1,10 @@
 import { api } from "@/lib/api";
-import { mirrorClientSellerToAdmin } from "@/lib/adminSellerMirror";
+import { CLIENT_KYC_KEY, isDemoApprovedKycUser, mirrorClientSellerToAdmin } from "@/lib/adminSellerMirror";
 import { isRecord, shouldUseStaticClientData } from "@/lib/staticMode";
 import type { User } from "@/contexts/AuthContext";
 import { getRequiredDocuments } from "./config";
 import type { DocumentField, DocumentKey, KycRecord, KycResponse, KycSubmitPayload } from "./types";
 
-const KYC_STORAGE_KEY = "shipsy-client-kyc";
 const USER_STORAGE_KEY = "shipsy-client-user";
 const DOCUMENT_KEYS: DocumentKey[] = [
   "selfie",
@@ -45,12 +44,47 @@ function makeEmptyKyc(): KycRecord {
   };
 }
 
+function kycStorageKey(user: User | null): string {
+  return user?.id ? `${CLIENT_KYC_KEY}:${user.id}` : CLIENT_KYC_KEY;
+}
+
+function makeApprovedDemoKyc(user: User): KycRecord {
+  const now = new Date().toISOString();
+  const approvedDocument = (): DocumentField => ({
+    status: "approved",
+    url: "demo-verified://document",
+    mime: "application/pdf",
+  });
+  return {
+    ...makeEmptyKyc(),
+    id: `kyc-${user.id}`,
+    userId: user.id,
+    status: "approved",
+    businessStructure: "sole_proprietor",
+    selfie: approvedDocument(),
+    panCard: approvedDocument(),
+    aadhaar: approvedDocument(),
+    cancelledCheque: approvedDocument(),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 function readStaticKyc(): KycRecord {
   if (typeof window === "undefined") return makeEmptyKyc();
-  const raw = localStorage.getItem(KYC_STORAGE_KEY);
+  const user = readCurrentUser();
+  const key = kycStorageKey(user);
+  if (user && isDemoApprovedKycUser(user)) {
+    const approvedKyc = makeApprovedDemoKyc(user);
+    localStorage.setItem(key, JSON.stringify(approvedKyc));
+    return approvedKyc;
+  }
+
+  const raw = localStorage.getItem(key);
   if (!raw) {
     const kyc = makeEmptyKyc();
-    localStorage.setItem(KYC_STORAGE_KEY, JSON.stringify(kyc));
+    if (user) kyc.userId = user.id;
+    localStorage.setItem(key, JSON.stringify(kyc));
     return kyc;
   }
 
@@ -59,7 +93,8 @@ function readStaticKyc(): KycRecord {
     return { ...makeEmptyKyc(), ...parsed };
   } catch {
     const kyc = makeEmptyKyc();
-    localStorage.setItem(KYC_STORAGE_KEY, JSON.stringify(kyc));
+    if (user) kyc.userId = user.id;
+    localStorage.setItem(key, JSON.stringify(kyc));
     return kyc;
   }
 }
@@ -67,7 +102,7 @@ function readStaticKyc(): KycRecord {
 function writeStaticKyc(kyc: KycRecord): KycResponse {
   const updated = { ...kyc, updatedAt: new Date().toISOString() };
   if (typeof window !== "undefined") {
-    localStorage.setItem(KYC_STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(kycStorageKey(readCurrentUser()), JSON.stringify(updated));
     mirrorCurrentSeller();
   }
   return { success: true, kyc: updated };
@@ -140,7 +175,7 @@ export const kycApi = {
         const { data } = await api.post("/kyc", payload);
         if (isKycResponse(data)) {
           if (typeof window !== "undefined") {
-            localStorage.setItem(KYC_STORAGE_KEY, JSON.stringify(data.kyc));
+            localStorage.setItem(kycStorageKey(readCurrentUser()), JSON.stringify(data.kyc));
             mirrorCurrentSeller();
           }
           return data;
@@ -179,7 +214,7 @@ export const kycApi = {
         });
         if (isKycResponse(data)) {
           if (typeof window !== "undefined") {
-            localStorage.setItem(KYC_STORAGE_KEY, JSON.stringify(data.kyc));
+            localStorage.setItem(kycStorageKey(readCurrentUser()), JSON.stringify(data.kyc));
             mirrorCurrentSeller();
           }
           return data;
