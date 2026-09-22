@@ -205,12 +205,27 @@ export const usersApi = {
       return filterUsers(readStaticUsers(), params);
     }
 
-    const { data } = await api.get("/users", { params });
-    const response = data as ListUsersResponse;
-    return {
-      ...response,
-      users: Array.isArray(response.users) ? response.users.map(normalizeUser) : [],
-    };
+    try {
+      const { data } = await api.get("/users", { params });
+      const response = data as ListUsersResponse;
+      const users = Array.isArray(response.users) ? response.users.map(normalizeUser) : [];
+      if (users.length === 0) {
+        return filterUsers(readStaticUsers(), params);
+      }
+      return {
+        ...response,
+        users,
+        stats: response.stats ?? buildStats(users),
+        pagination: response.pagination ?? {
+          page: params?.page ?? 1,
+          limit: params?.limit ?? 20,
+          total: users.length,
+          totalPages: 1,
+        },
+      };
+    } catch {
+      return filterUsers(readStaticUsers(), params);
+    }
   },
 
   getById: async (id: string): Promise<{ user: UserListItem }> => {
@@ -220,9 +235,16 @@ export const usersApi = {
       return { user: normalizeUser(user) };
     }
 
-    const { data } = await api.get(`/users/${id}`);
-    const response = data as { user: UserListItem };
-    return { ...response, user: normalizeUser(response.user) };
+    try {
+      const { data } = await api.get(`/users/${id}`);
+      const response = data as { user: UserListItem };
+      if (response.user) return { ...response, user: normalizeUser(response.user) };
+    } catch {
+      // Static admin deploys keep seller data locally.
+    }
+    const user = readStaticUsers().find((item) => item.id === id);
+    if (!user) throw new Error("User not found");
+    return { user: normalizeUser(user) };
   },
 
   toggleActive: async (id: string): Promise<{ message: string }> => {
@@ -258,8 +280,34 @@ export const usersApi = {
       return { members: [] };
     }
 
-    const { data } = await api.get(`/users/${id}/team-members`);
-    return data as ListTeamMembersResponse;
+    try {
+      const { data } = await api.get(`/users/${id}/team-members`);
+      const response = data as ListTeamMembersResponse;
+      if (Array.isArray(response.members) && response.members.length > 0) return response;
+    } catch {
+      // Static admin deploys keep seller data locally.
+    }
+
+    const user = readStaticUsers().find((item) => item.id === id);
+    if (!user) return { members: [] };
+    return {
+      members: [
+        {
+          id: `${id}-owner`,
+          name: user.name,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone,
+          teamRole: "owner",
+          parentUserId: id,
+          isActive: user.isActive,
+          lastLogin: user.lastLogin,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+        },
+      ],
+    };
   },
 
   createTeamMember: async (

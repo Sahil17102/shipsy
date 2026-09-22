@@ -80,6 +80,7 @@ export function seedBasicPlan(): Plan {
 
 export function seedAdmin(): User {
   const existing = readJson<User | null>(STATIC_ADMIN_KEY, null);
+  const defaultSellerIds = ["seller-deoband-bazaar", "shipsy-demo-seller"];
   const admin: User = {
     id: "demo-admin-user",
     email: existing?.email ?? "admin@shipsy.in",
@@ -90,7 +91,7 @@ export function seedAdmin(): User {
     role: "superadmin",
     designation: existing?.designation ?? "Operations Lead",
     roleLabel: existing?.roleLabel ?? "Superadmin",
-    assignedSellerIds: existing?.assignedSellerIds?.length ? existing.assignedSellerIds : ["shipsy-demo-seller"],
+    assignedSellerIds: existing?.assignedSellerIds?.length ? existing.assignedSellerIds : defaultSellerIds,
     permissions: existing?.permissions ?? [],
     isVerified: existing?.isVerified ?? true,
     onboardingComplete: existing?.onboardingComplete ?? true,
@@ -102,44 +103,74 @@ export function seedAdmin(): User {
 export function assignBasicPlan(): UserListItem {
   const plan = seedBasicPlan();
   const users = readJson<UserListItem[]>(STATIC_USERS_KEY, []);
-  const existing = users.find((user) => user.id === "shipsy-demo-seller");
-  const seller: UserListItem = {
-    id: "shipsy-demo-seller",
-    name: "Shipsy Demo Seller",
-    firstName: "Shipsy",
-    lastName: "Seller",
-    email: "support@shipsy.in",
-    phone: "9876543210",
-    businessName: "Shipsy Demo Store",
-    pincode: "122001",
-    city: "Gurugram",
-    state: "Haryana",
-    website: "https://shipsy.in",
-    supportEmail: "support@shipsy.in",
-    contactNumber: "9876543210",
-    address: "ShipSy Business Hub, Sector 44, Gurugram",
-    sellsOn: ["Website", "Shopify"],
-    monthlyShipmentVolume: "100-500",
-    lastLogin: nowIso(),
-    isActive: true,
-    onboardingComplete: true,
-    isVerified: true,
-    kycStatus: "approved",
-    plan: plan.slug,
-    createdAt: existing?.createdAt ?? nowIso(),
-    updatedAt: nowIso(),
-  };
+  const currentById = new Map(users.map((user) => [user.id, user]));
+  const updatedAt = nowIso();
+  const defaultSellers: UserListItem[] = [
+    {
+      id: "seller-deoband-bazaar",
+      name: "Nuzhat Sayyed",
+      firstName: "Nuzhat",
+      lastName: "Sayyed",
+      email: "nuzhatsayyed28@gmail.com",
+      phone: null,
+      businessName: "DEOBAND BAZAAR",
+      pincode: "247554",
+      city: "Deoband",
+      state: "Uttar Pradesh",
+      website: null,
+      supportEmail: "nuzhatsayyed28@gmail.com",
+      contactNumber: null,
+      address: "Deoband Bazaar, Saharanpur, Uttar Pradesh",
+      sellsOn: ["Website", "Marketplace"],
+      monthlyShipmentVolume: "100-500",
+      lastLogin: updatedAt,
+      isActive: true,
+      onboardingComplete: true,
+      isVerified: true,
+      kycStatus: "approved",
+      plan: plan.slug,
+      createdAt: currentById.get("seller-deoband-bazaar")?.createdAt ?? updatedAt,
+      updatedAt,
+    },
+    {
+      id: "shipsy-demo-seller",
+      name: "Shipsy Demo Seller",
+      firstName: "Shipsy",
+      lastName: "Seller",
+      email: "support@shipsy.in",
+      phone: "9876543210",
+      businessName: "Shipsy Demo Store",
+      pincode: "122001",
+      city: "Gurugram",
+      state: "Haryana",
+      website: "https://shipsy.in",
+      supportEmail: "support@shipsy.in",
+      contactNumber: "9876543210",
+      address: "ShipSy Business Hub, Sector 44, Gurugram",
+      sellsOn: ["Website", "Shopify"],
+      monthlyShipmentVolume: "100-500",
+      lastLogin: updatedAt,
+      isActive: true,
+      onboardingComplete: true,
+      isVerified: true,
+      kycStatus: "approved",
+      plan: plan.slug,
+      createdAt: currentById.get("shipsy-demo-seller")?.createdAt ?? updatedAt,
+      updatedAt,
+    },
+  ];
+  const defaultIds = new Set(defaultSellers.map((seller) => seller.id));
   writeStaticUsers([
-    seller,
+    ...defaultSellers,
     ...users.filter(
       (user) =>
-        user.id !== seller.id &&
+        !defaultIds.has(user.id) &&
         user.id !== "demo-client-user" &&
         user.name !== "Sahil Mittal" &&
         user.businessName !== "Sahil Mittal Store",
     ),
   ]);
-  return seller;
+  return defaultSellers[0];
 }
 
 export function seedLocations(): LocationListItem[] {
