@@ -44,22 +44,31 @@ import type {
 
 const { Title, Text } = Typography;
 
-const COLORS = ["#6C5CE7", "#F97316", "#10B981", "#3B82F6", "#EF4444", "#94A3B8", "#8B5CF6", "#EC4899"];
-const PIE_COLORS = ["#6C5CE7", "#F97316"];
+const COLORS = [
+  "var(--color-primary)",
+  "var(--color-revenue)",
+  "var(--color-success)",
+  "var(--color-info)",
+  "var(--color-warning)",
+  "var(--color-operations)",
+  "var(--color-danger)",
+  "var(--color-text-tertiary)",
+];
+const PIE_COLORS = ["var(--color-primary)", "var(--color-warning)"];
 
 const STATUS_COLORS_MAP: Record<string, string> = {
   created: "#6B7280",
-  processing: "#3B82F6",
-  booked: "#3B82F6",
-  pickup_initiated: "#8B5CF6",
-  shipped: "#6366F1",
-  in_transit: "#0EA5E9",
-  out_for_delivery: "#F59E0B",
-  delivered: "#10B981",
-  ndr: "#EF4444",
-  rto_initiated: "#F97316",
-  rto_in_transit: "#F97316",
-  rto_delivered: "#DC2626",
+  processing: "var(--color-info)",
+  booked: "var(--color-primary)",
+  pickup_initiated: "var(--color-operations)",
+  shipped: "var(--color-primary)",
+  in_transit: "var(--color-info)",
+  out_for_delivery: "var(--color-warning)",
+  delivered: "var(--color-success)",
+  ndr: "var(--color-danger)",
+  rto_initiated: "var(--color-warning)",
+  rto_in_transit: "var(--color-warning)",
+  rto_delivered: "var(--color-danger)",
   cancelled: "#9CA3AF",
   lost: "#7C3AED",
 };
@@ -97,7 +106,8 @@ function StatCard({
   color: string;
 }) {
   return (
-    <Card className="!border-border" styles={{ body: { padding: "12px 16px" } }}>
+    <Card className="relative !border-border overflow-hidden" styles={{ body: { padding: "14px 16px" } }}>
+      <div className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: color }} />
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <Text className="text-muted text-xs">{label}</Text>
@@ -115,8 +125,11 @@ function StatCard({
           </div>
         </div>
         <div
-          className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center shrink-0"
-          style={{ backgroundColor: color + "14" }}
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center shrink-0 ring-1 ring-inset"
+          style={{
+            backgroundColor: `color-mix(in srgb, ${color} 13%, transparent)`,
+            boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${color} 18%, transparent)`,
+          }}
         >
           <Icon size={20} style={{ color }} />
         </div>
@@ -323,16 +336,16 @@ function TrendCharts({ data }: { data: TrendPoint[] }) {
               <AreaChart data={formatted}>
                 <defs>
                   <linearGradient id="gradOrders" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#6C5CE7" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#6C5CE7" stopOpacity={0} />
+                    <stop offset="0%" stopColor="var(--color-primary)" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="var(--color-primary)" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="gradDelivered" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10B981" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#10B981" stopOpacity={0} />
+                    <stop offset="0%" stopColor="var(--color-success)" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="var(--color-success)" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="gradRto" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#EF4444" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#EF4444" stopOpacity={0} />
+                    <stop offset="0%" stopColor="var(--color-danger)" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="var(--color-danger)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border, #e5e7eb)" vertical={false} />
@@ -340,9 +353,9 @@ function TrendCharts({ data }: { data: TrendPoint[] }) {
                 <YAxis stroke="var(--color-text-secondary, #94a3b8)" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend wrapperStyle={{ fontSize: 12, color: "var(--color-text-secondary, #94a3b8)" }} />
-                <Area type="monotone" dataKey="orders" stroke="#6C5CE7" strokeWidth={2} fill="url(#gradOrders)" name="Orders" dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
-                <Area type="monotone" dataKey="delivered" stroke="#10B981" strokeWidth={2} fill="url(#gradDelivered)" name="Delivered" dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
-                <Area type="monotone" dataKey="rto" stroke="#EF4444" strokeWidth={2} fill="url(#gradRto)" name="RTO" dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="orders" stroke="var(--color-primary)" strokeWidth={2} fill="url(#gradOrders)" name="Orders" dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="delivered" stroke="var(--color-success)" strokeWidth={2} fill="url(#gradDelivered)" name="Delivered" dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="rto" stroke="var(--color-danger)" strokeWidth={2} fill="url(#gradRto)" name="RTO" dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
               </AreaChart>
             </ResponsiveContainer>
           ),
@@ -355,15 +368,15 @@ function TrendCharts({ data }: { data: TrendPoint[] }) {
               <AreaChart data={formatted}>
                 <defs>
                   <linearGradient id="gradRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#F97316" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#F97316" stopOpacity={0} />
+                    <stop offset="0%" stopColor="var(--color-revenue)" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="var(--color-revenue)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border, #e5e7eb)" vertical={false} />
                 {commonXAxis}
                 <YAxis stroke="var(--color-text-secondary, #94a3b8)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
                 <Tooltip contentStyle={tooltipStyle} formatter={(value) => [formatCurrency(Number(value)), "Revenue"]} />
-                <Area type="monotone" dataKey="revenue" stroke="#F97316" strokeWidth={2} fill="url(#gradRevenue)" name="Revenue" dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="revenue" stroke="var(--color-revenue)" strokeWidth={2} fill="url(#gradRevenue)" name="Revenue" dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
               </AreaChart>
             </ResponsiveContainer>
           ),
@@ -406,8 +419,8 @@ function RevenueCostChart({ data }: { data: CourierMargin[] }) {
         <YAxis stroke="var(--color-text-secondary, #94a3b8)" fontSize={11} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
         <Tooltip contentStyle={tooltipStyle} formatter={(value) => [formatCurrency(Number(value))]} />
         <Legend wrapperStyle={{ fontSize: 12, color: "var(--color-text-secondary, #94a3b8)" }} />
-        <Bar dataKey="revenue" fill="#6C5CE7" radius={[4, 4, 0, 0]} name="Revenue" />
-        <Bar dataKey="cost" fill="#F97316" radius={[4, 4, 0, 0]} name="Cost" />
+        <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[4, 4, 0, 0]} name="Revenue" />
+        <Bar dataKey="cost" fill="var(--color-warning)" radius={[4, 4, 0, 0]} name="Cost" />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -690,20 +703,20 @@ export default function DashboardPage() {
           subtitle={`${overview.ordersToday} today`}
           trend={ordersTrend}
           icon={PackageOpen}
-          color="#6C5CE7"
+          color="var(--color-primary)"
         />
         <StatCard
           label="Active Sellers"
           value={overview.activeSellers.toLocaleString()}
           icon={Users}
-          color="#3B82F6"
+          color="var(--color-info)"
         />
         <StatCard
           label={`Revenue (${periodLabel})`}
           value={formatCurrency(overview.revenue)}
           trend={revenueTrend}
           icon={IndianRupee}
-          color="#10B981"
+          color="var(--color-revenue)"
         />
         <StatCard
           label="Delivery Rate"
@@ -711,7 +724,7 @@ export default function DashboardPage() {
           subtitle={overview.avgDeliveryDays != null ? `Avg ${overview.avgDeliveryDays}d` : undefined}
           trend={deliveryTrend}
           icon={Truck}
-          color="#F97316"
+          color="var(--color-warning)"
         />
       </div>
 
@@ -783,7 +796,7 @@ export default function DashboardPage() {
                 style={{ backgroundColor: "rgba(59, 130, 246, 0.08)" }}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <FileCheck size={14} className="shrink-0 text-[#3B82F6]" />
+                  <FileCheck size={14} className="shrink-0 text-info" />
                   <span className="text-sm text-foreground truncate">KYC verifications pending</span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 ml-3">

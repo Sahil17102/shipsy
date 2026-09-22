@@ -102,19 +102,19 @@ export default function AdminHeader({ onMobileMenuOpen, sidebarCollapsed, onTogg
   };
 
   return (
-    <header className="sticky top-0 z-20 h-14 bg-background-elevated border-b border-border-light flex items-center justify-between px-4 sm:px-6 shrink-0">
+    <header className="admin-header sticky top-0 z-20 h-14 border-b border-border-light flex items-center justify-between px-4 sm:px-6 shrink-0 shadow-sm shadow-slate-900/[0.03]">
       {/* Left */}
       <div className="flex items-center gap-1">
         <button
           onClick={onMobileMenuOpen}
-          className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-background text-muted hover:text-foreground transition-colors duration-150"
+          className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-primary-bg text-muted hover:text-primary transition-colors duration-150"
         >
           <Menu className="w-5 h-5" />
         </button>
         <button
           onClick={onToggleSidebar}
           title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="hidden lg:flex p-2 -ml-2 rounded-lg hover:bg-background text-muted hover:text-foreground transition-colors duration-150"
+          className="hidden lg:flex p-2 -ml-2 rounded-lg hover:bg-primary-bg text-muted hover:text-primary transition-colors duration-150"
         >
           {sidebarCollapsed ? (
             <PanelLeftOpen className="w-[18px] h-[18px]" />
@@ -122,7 +122,7 @@ export default function AdminHeader({ onMobileMenuOpen, sidebarCollapsed, onTogg
             <PanelLeftClose className="w-[18px] h-[18px]" />
           )}
         </button>
-        <h1 className="text-sm font-semibold text-foreground ml-1">{pageTitle}</h1>
+        <h1 className="text-sm font-bold text-foreground ml-1">{pageTitle}</h1>
       </div>
 
       {/* Right */}
@@ -133,19 +133,19 @@ export default function AdminHeader({ onMobileMenuOpen, sidebarCollapsed, onTogg
         <div className="relative" ref={bellRef}>
           <button
             onClick={() => setBellOpen((v) => !v)}
-            className="relative p-2 rounded-lg hover:bg-background text-muted hover:text-foreground transition-colors duration-150"
+            className="relative p-2 rounded-lg border border-transparent hover:border-border-light hover:bg-primary-bg text-muted hover:text-primary transition-colors duration-150"
             title="Notifications"
           >
             <Bell className="w-[18px] h-[18px]" />
             {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 text-[10px] font-bold bg-accent text-white rounded-full flex items-center justify-center ring-2 ring-background-elevated">
+              <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 text-[10px] font-bold bg-danger text-white rounded-full flex items-center justify-center ring-2 ring-background-elevated">
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
           </button>
 
           {bellOpen && (
-            <div className="absolute right-0 mt-2 w-[360px] max-h-[480px] rounded-lg border border-border-light bg-background-elevated shadow-lg overflow-hidden flex flex-col">
+            <div className="absolute right-0 mt-2 w-[360px] max-h-[480px] rounded-lg border border-border-light bg-background-elevated shadow-xl overflow-hidden flex flex-col">
               <div className="px-3 py-2.5 border-b border-border-light flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-foreground">Notifications</span>
@@ -233,9 +233,9 @@ export default function AdminHeader({ onMobileMenuOpen, sidebarCollapsed, onTogg
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="w-8 h-8 rounded-full bg-primary-bg flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-primary/30 transition-all duration-150"
+            className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-info flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-primary/30 transition-all duration-150 shadow-sm"
           >
-            <span className="text-xs font-semibold text-primary">{getInitials(user)}</span>
+            <span className="text-xs font-bold text-white">{getInitials(user)}</span>
           </button>
 
           {menuOpen && (

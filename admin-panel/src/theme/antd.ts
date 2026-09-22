@@ -15,6 +15,14 @@ export function getAntdTheme(mode: ThemeMode): ThemeConfig {
       colorPrimary: colors.primary,
       borderRadius: theme.radius.md,
       fontFamily: theme.fontFamily.sans,
+      colorBgLayout: colors.bg,
+      colorBgContainer: colors.bgElevated,
+      colorBgElevated: colors.bgElevated,
+      colorBorder: colors.border,
+      colorBorderSecondary: colors.borderLight,
+      colorText: colors.text,
+      colorTextSecondary: colors.textSecondary,
+      colorTextTertiary: colors.textTertiary,
       ...(mode === "dark" && {
         colorBgContainer: darkColors.bgElevated,
         colorBgElevated: "#243147",
@@ -33,6 +41,26 @@ export function getAntdTheme(mode: ThemeMode): ThemeConfig {
       },
       Card: {
         borderRadiusLG: theme.radius.lg,
+        colorBgContainer: colors.bgElevated,
+        colorBorderSecondary: colors.borderLight,
+        headerBg: colors.bgPanel,
+        headerFontSize: 14,
+      },
+      Select: {
+        colorBgContainer: colors.bgElevated,
+        colorBorder: colors.borderLight,
+        optionSelectedBg: colors.primaryBgSolid,
+      },
+      Input: {
+        colorBgContainer: colors.bgElevated,
+        colorBorder: colors.borderLight,
+        activeBorderColor: colors.primary,
+        hoverBorderColor: colors.primary,
+      },
+      Tabs: {
+        itemSelectedColor: colors.primary,
+        itemHoverColor: colors.primaryHover,
+        inkBarColor: colors.primary,
       },
       Table: {
         // Use opaque equivalents for header & hover so fixed/sticky columns

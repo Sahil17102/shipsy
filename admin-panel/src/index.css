@@ -60,6 +60,59 @@
   }
 }
 
+.admin-shell {
+  background:
+    linear-gradient(180deg, var(--color-bg-panel) 0%, var(--color-bg) 280px),
+    var(--color-bg);
+}
+
+.admin-content {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-bg-panel) 76%, transparent) 0%, transparent 220px);
+}
+
+.admin-sidebar {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-sidebar-bg) 84%, #2563eb 16%) 0%, var(--color-sidebar-bg) 44%),
+    var(--color-sidebar-bg);
+}
+
+.admin-header {
+  background: var(--color-header-bg);
+  backdrop-filter: blur(14px);
+}
+
+.ant-card {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 26px rgba(15, 23, 42, 0.035);
+}
+
+[data-theme="dark"] .ant-card {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 18px 42px rgba(0, 0, 0, 0.2);
+}
+
+.ant-card .ant-card-head {
+  border-bottom-color: var(--color-border-light) !important;
+}
+
+.ant-card .ant-card-head-title {
+  color: var(--color-text) !important;
+  font-weight: 700 !important;
+}
+
+.ant-card .ant-card-body {
+  background: var(--color-bg-elevated);
+}
+
+.ant-select-dropdown,
+.ant-dropdown,
+.ant-popover-inner {
+  border: 1px solid var(--color-border-light);
+}
+
+.ant-tag {
+  font-weight: 600;
+}
+
 @layer utilities {
   /* ─── Skeleton shimmer for loading placeholders ─── */
   .skeleton {

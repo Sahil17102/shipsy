@@ -12,7 +12,7 @@ export default function AdminLayout() {
 
   return (
     <div
-      className="min-h-screen bg-background flex"
+      className="admin-shell min-h-screen flex"
       style={getThemeVarsStyle(mode)}
       data-theme={mode}
     >
@@ -28,7 +28,7 @@ export default function AdminLayout() {
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
         />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className="admin-content flex-1 overflow-y-auto p-4 sm:p-6">
           <Outlet />
         </main>
       </div>

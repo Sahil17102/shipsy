@@ -22,12 +22,12 @@ function SidebarNavLink({ item, onClick, collapsed }: { item: NavItem; onClick?:
           collapsed ? "justify-center" : ""
         } ${
           isActive
-            ? "bg-primary-bg text-primary"
-            : "text-muted hover:text-foreground hover:bg-surface-muted"
+            ? "bg-sidebar-active text-sidebar-active-foreground shadow-sm"
+            : "text-sidebar-muted hover:text-sidebar-foreground hover:bg-white/10"
         }`
       }
     >
-      <Icon size={18} className="shrink-0" />
+      <Icon size={18} className={`shrink-0 ${collapsed ? "" : "opacity-95"}`} />
       {!collapsed && <span>{item.label}</span>}
     </NavLink>
   );
@@ -61,8 +61,8 @@ function SidebarNavGroup({
         onClick={onItemClick}
         className={`flex items-center justify-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
           hasActiveChild
-            ? "bg-primary-bg text-primary"
-            : "text-muted hover:text-foreground hover:bg-surface-muted"
+            ? "bg-sidebar-active text-sidebar-active-foreground shadow-sm"
+            : "text-sidebar-muted hover:text-sidebar-foreground hover:bg-white/10"
         }`}
       >
         <Icon size={18} className="shrink-0" />
@@ -77,8 +77,8 @@ function SidebarNavGroup({
         onClick={onToggle}
         className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
           hasActiveChild
-            ? "text-primary"
-            : "text-muted hover:text-foreground hover:bg-surface-muted"
+            ? "text-sidebar-active-foreground bg-white/5"
+            : "text-sidebar-muted hover:text-sidebar-foreground hover:bg-white/10"
         }`}
       >
         <Icon size={18} className="shrink-0" />
@@ -88,7 +88,7 @@ function SidebarNavGroup({
           transition={{ duration: 0.2, ease: "easeInOut" }}
           className="shrink-0"
         >
-          <ChevronRight size={14} className="text-tertiary" />
+          <ChevronRight size={14} className="text-sidebar-muted" />
         </motion.span>
       </button>
 
@@ -102,7 +102,7 @@ function SidebarNavGroup({
             transition={{ duration: 0.2, ease: "easeInOut" }}
             className="overflow-hidden"
           >
-            <div className="pl-4 mt-0.5 space-y-0.5 border-l border-border-light ml-[21px]">
+            <div className="pl-4 mt-0.5 space-y-0.5 border-l border-sidebar-border ml-[21px]">
               {group.items.map((item) => (
                 <NavLink
                   key={item.path}
@@ -111,8 +111,8 @@ function SidebarNavGroup({
                   className={({ isActive }) =>
                     `flex items-center gap-2.5 px-3 py-1.5 rounded-md text-[13px] transition-colors ${
                       isActive
-                        ? "text-primary font-medium bg-primary-bg"
-                        : "text-muted hover:text-foreground hover:bg-surface-muted"
+                        ? "text-sidebar-active-foreground font-semibold bg-sidebar-active"
+                        : "text-sidebar-muted hover:text-sidebar-foreground hover:bg-white/10"
                     }`
                   }
                 >
@@ -199,12 +199,12 @@ export default function Sidebar({ mobileOpen, onMobileClose, collapsed }: Sideba
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className={`hidden lg:flex flex-col bg-background-elevated border-r border-border-light h-screen sticky top-0 shrink-0 transition-[width] duration-200 ease-in-out ${
+      <aside className={`admin-sidebar hidden lg:flex flex-col border-r border-sidebar-border h-screen sticky top-0 shrink-0 transition-[width] duration-200 ease-in-out ${
         collapsed ? "w-[68px]" : "w-60"
       }`}>
         {/* Header */}
-        <div className={`flex items-center h-[86px] px-4 border-b border-border-light shrink-0 ${collapsed ? "justify-center px-2" : ""}`}>
-          <AppLogo size="sm" showText={!collapsed} />
+        <div className={`flex items-center h-[86px] px-4 border-b border-sidebar-border shrink-0 ${collapsed ? "justify-center px-2" : ""}`}>
+          <AppLogo size="sm" showText={!collapsed} textClassName="text-sidebar-muted" />
         </div>
 
         <SidebarContent collapsed={collapsed} />
@@ -232,10 +232,10 @@ export default function Sidebar({ mobileOpen, onMobileClose, collapsed }: Sideba
               onDragEnd={(_, info) => {
                 if (info.offset.x < -80) onMobileClose();
               }}
-              className="fixed inset-y-0 left-0 w-60 bg-background-elevated z-50 shadow-xl lg:hidden flex flex-col"
+              className="admin-sidebar fixed inset-y-0 left-0 w-60 z-50 shadow-xl lg:hidden flex flex-col"
             >
-              <div className="flex items-center h-[86px] px-4 border-b border-border-light shrink-0">
-                <AppLogo size="sm" />
+              <div className="flex items-center h-[86px] px-4 border-b border-sidebar-border shrink-0">
+                <AppLogo size="sm" textClassName="text-sidebar-muted" />
               </div>
 
               <SidebarContent onItemClick={onMobileClose} />

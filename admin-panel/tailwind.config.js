@@ -30,6 +30,16 @@ export default {
         "border-light": "var(--color-border-light)",
         background: "var(--color-bg)",
         "background-elevated": "var(--color-bg-elevated)",
+        "background-panel": "var(--color-bg-panel)",
+        "header-bg": "var(--color-header-bg)",
+        sidebar: {
+          DEFAULT: "var(--color-sidebar-bg)",
+          foreground: "var(--color-sidebar-fg)",
+          muted: "var(--color-sidebar-muted)",
+          active: "var(--color-sidebar-active-bg)",
+          "active-foreground": "var(--color-sidebar-active-fg)",
+          border: "var(--color-sidebar-border)",
+        },
         "hero-dark": "var(--color-hero-dark)",
         "hero-end": "var(--color-hero-gradient-end)",
         "loading-overlay": "var(--color-loading-overlay)",
@@ -37,6 +47,22 @@ export default {
         success: {
           DEFAULT: "var(--color-success)",
           bg: "var(--color-success-bg)",
+        },
+        warning: {
+          DEFAULT: "var(--color-warning)",
+          bg: "var(--color-warning-bg)",
+        },
+        info: {
+          DEFAULT: "var(--color-info)",
+          bg: "var(--color-info-bg)",
+        },
+        revenue: {
+          DEFAULT: "var(--color-revenue)",
+          bg: "var(--color-revenue-bg)",
+        },
+        operations: {
+          DEFAULT: "var(--color-operations)",
+          bg: "var(--color-operations-bg)",
         },
         danger: {
           DEFAULT: "var(--color-danger)",
