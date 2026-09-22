@@ -1,0 +1,587 @@
+{
+  "info": {
+    "_postman_id": "92c93523-a9ce-4d0d-af5c-4885e2c9b61f",
+    "name": "Shipsy Delhivery B2C Proxy",
+    "description": "Postman collection for the server-side Shipsy Delhivery B2C proxy. Set base_url plus delhivery_token/delhivery_env in the bundled environment, or configure DELHIVERY_TOKEN/DELHIVERY_ENV on the server. Optional delhivery_base_url can be enabled for mocks or endpoint overrides.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "List Supported Operations",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "B2C Pincode Serviceability",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"pincodeServiceability\",\n  \"params\": {\n    \"filter_codes\": \"194103\"\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Heavy Pincode Serviceability",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"heavyPincodeServiceability\",\n  \"params\": {\n    \"product_type\": \"Heavy\",\n    \"pincode\": \"400086\"\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Expected TAT",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"expectedTat\",\n  \"params\": {\n    \"origin_pin\": \"122003\",\n    \"destination_pin\": \"136118\",\n    \"mot\": \"S\",\n    \"pdt\": \"B2C\",\n    \"expected_pickup_date\": \"2024-05-31 11:00\"\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Fetch Bulk Waybills",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"fetchBulkWaybills\",\n  \"params\": {\n    \"count\": 5\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Fetch Single Waybill",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"fetchWaybill\"\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Create Shipment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"createShipment\",\n  \"payload\": {\n    \"shipments\": [\n      {\n        \"name\": \"Consignee name\",\n        \"add\": \"Huda Market, Haryana\",\n        \"pin\": \"110042\",\n        \"city\": \"Gurugram\",\n        \"state\": \"Haryana\",\n        \"country\": \"India\",\n        \"phone\": \"9999999999\",\n        \"order\": \"{{sample_order_id}}\",\n        \"payment_mode\": \"Prepaid\",\n        \"products_desc\": \"Demo shipment\",\n        \"total_amount\": \"1000\",\n        \"quantity\": \"1\",\n        \"shipment_width\": \"10\",\n        \"shipment_height\": \"10\",\n        \"shipment_length\": \"10\",\n        \"weight\": \"500\",\n        \"shipping_mode\": \"Surface\"\n      }\n    ],\n    \"pickup_location\": {\n      \"name\": \"{{sample_pickup_location}}\"\n    }\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Create RVP QC Shipment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"createShipment\",\n  \"payload\": {\n    \"shipments\": [\n      {\n        \"name\": \"Jitendra Singh\",\n        \"add\": \"7 106 abc road\",\n        \"pin\": \"521111\",\n        \"city\": \"Meerjapuram\",\n        \"state\": \"Andhra Pradesh\",\n        \"country\": \"India\",\n        \"phone\": \"1234567890\",\n        \"order\": \"{{sample_order_id}}-RVP\",\n        \"payment_mode\": \"Pickup\",\n        \"products_desc\": \"RVP QC Item\",\n        \"total_amount\": 749,\n        \"quantity\": 1,\n        \"weight\": \"150\",\n        \"shipping_mode\": \"Express\",\n        \"return_add\": \"SHOP NO 218, ABC Road, Mumbai\",\n        \"return_city\": \"SURAT\",\n        \"return_state\": \"Gujarat\",\n        \"return_country\": \"India\",\n        \"return_pin\": \"394101\",\n        \"return_phone\": \"1234567890\",\n        \"qc_type\": \"param\",\n        \"custom_qc\": [\n          {\n            \"item\": \"mobile\",\n            \"description\": \"Mi note 1 pro\",\n            \"images\": [\"https://example.com/item.jpg\"],\n            \"return_reason\": \"Damaged\",\n            \"quantity\": 1,\n            \"brand\": \"Mi\",\n            \"product_category\": \"mobile\",\n            \"questions\": [\n              {\n                \"questions_id\": \"client_question_id_1\",\n                \"options\": [\"\"],\n                \"value\": [\"123456543\"],\n                \"required\": true,\n                \"type\": \"varchar\"\n              }\n            ]\n          }\n        ]\n      }\n    ],\n    \"pickup_location\": {\n      \"name\": \"{{sample_pickup_location}}\"\n    }\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Edit Shipment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"editShipment\",\n  \"payload\": {\n    \"waybill\": \"{{sample_waybill}}\",\n    \"pt\": \"Pre-paid\",\n    \"shipment_height\": 40.2,\n    \"gm\": 100.2\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Cancel Shipment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"cancelShipment\",\n  \"params\": {\n    \"waybill\": \"{{sample_waybill}}\"\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Update Ewaybill",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"updateEwaybill\",\n  \"params\": {\n    \"waybill\": \"{{sample_waybill}}\"\n  },\n  \"payload\": {\n    \"data\": [\n      {\n        \"dcn\": \"INV-001\",\n        \"ewbn\": \"EWB-001\"\n      }\n    ]\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Track Shipment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"trackShipment\",\n  \"params\": {\n    \"waybill\": \"{{sample_waybill}}\",\n    \"ref_ids\": \"\"\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Calculate Shipping Cost",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"calculateShippingCost\",\n  \"params\": {\n    \"md\": \"E\",\n    \"ss\": \"Delivered\",\n    \"d_pin\": \"110053\",\n    \"o_pin\": \"110042\",\n    \"cgm\": 500,\n    \"pt\": \"Pre-paid\",\n    \"l\": 10,\n    \"b\": 10,\n    \"h\": 10,\n    \"ipkg_type\": \"box\"\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Generate Shipping Label",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"generateLabel\",\n  \"params\": {\n    \"waybill\": \"{{sample_waybill}}\",\n    \"pdf\": true,\n    \"pdf_size\": \"4R\"\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Create Pickup Request",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"createPickupRequest\",\n  \"payload\": {\n    \"pickup_time\": \"11:00:00\",\n    \"pickup_date\": \"2026-09-23\",\n    \"pickup_location\": \"{{sample_pickup_location}}\",\n    \"expected_package_count\": 1\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Create Warehouse",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"createWarehouse\",\n  \"payload\": {\n    \"phone\": \"9999999999\",\n    \"city\": \"Kota\",\n    \"name\": \"{{sample_pickup_location}}\",\n    \"pin\": \"110042\",\n    \"address\": \"Warehouse address\",\n    \"country\": \"India\",\n    \"email\": \"ops@example.com\",\n    \"registered_name\": \"Shipsy\",\n    \"return_address\": \"Return address\",\n    \"return_pin\": \"110042\",\n    \"return_city\": \"Kota\",\n    \"return_state\": \"Delhi\",\n    \"return_country\": \"India\"\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Update Warehouse",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"updateWarehouse\",\n  \"payload\": {\n    \"name\": \"{{sample_pickup_location}}\",\n    \"pin\": \"110042\",\n    \"phone\": \"9999999999\",\n    \"address\": \"Updated warehouse address\"\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Download Document",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"downloadDocument\",\n  \"params\": {\n    \"doc_type\": \"EPOD\",\n    \"waybill\": \"{{sample_waybill}}\"\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "NDR Action",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"ndrAction\",\n  \"payload\": {\n    \"data\": [\n      {\n        \"waybill\": \"{{sample_waybill}}\",\n        \"act\": \"RE-ATTEMPT\"\n      }\n    ]\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    },
+    {
+      "name": "Get NDR Status",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Delhivery-Token",
+            "value": "{{delhivery_token}}"
+          },
+          {
+            "key": "X-Delhivery-Env",
+            "value": "{{delhivery_env}}"
+          },
+          {
+            "key": "X-Delhivery-Base-Url",
+            "value": "{{delhivery_base_url}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"operation\": \"getNdrStatus\",\n  \"params\": {\n    \"upl_id\": \"{{sample_upl_id}}\",\n    \"verbose\": true\n  }\n}"
+        },
+        "url": "{{base_url}}/api/delhivery/b2c"
+      }
+    }
+  ]
+}
