@@ -43,6 +43,7 @@ export default function OrderTrackingPage() {
 
   const searchMutation = useTrackingSearch();
   const trackingQuery = useOrderTracking(selectedOrderId);
+  const searchResults = searchMutation.data?.orders ?? [];
 
   // Fire the deep-linked search once, on arrival.
   const autoSearched = useRef(false);
@@ -52,7 +53,7 @@ export default function OrderTrackingPage() {
     searchMutation.mutate({ search: initialQuery.trim(), limit: 10 });
   }, [initialQuery, searchMutation]);
 
-  const selectedOrder = searchMutation.data?.orders.find(
+  const selectedOrder = searchResults.find(
     (o) => o.id === selectedOrderId,
   );
 
@@ -119,20 +120,20 @@ export default function OrderTrackingPage() {
       )}
 
       {/* No results */}
-      {searchMutation.data && searchMutation.data.orders.length === 0 && (
+      {searchMutation.data && searchResults.length === 0 && (
         <div className="bg-background-elevated border border-border-light rounded-xl p-8">
           <Empty description="No orders found. Try a different search term." />
         </div>
       )}
 
       {/* Results list */}
-      {searchMutation.data && searchMutation.data.orders.length > 0 && !selectedOrderId && (
+      {searchMutation.data && searchResults.length > 0 && !selectedOrderId && (
         <div>
           <p className="text-sm text-muted mb-3">
             Found {searchMutation.data.orders.length} order{searchMutation.data.orders.length > 1 ? "s" : ""}
           </p>
           <div className="grid gap-3">
-            {searchMutation.data.orders.map((order) => (
+            {searchResults.map((order) => (
               <OrderResult
                 key={order.id}
                 order={order}

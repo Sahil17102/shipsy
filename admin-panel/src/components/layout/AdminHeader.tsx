@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Menu,
@@ -7,6 +8,13 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   CheckCheck,
+  Search,
+  Zap,
+  PackageOpen,
+  AlertTriangle,
+  Undo2,
+  Calculator,
+  FileSpreadsheet,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -45,14 +53,26 @@ function getInitials(user: User | null): string {
   return (user.email?.[0] ?? "A").toUpperCase();
 }
 
+const QUICK_ACTIONS = [
+  { label: "All Orders", path: "/orders", icon: PackageOpen, tone: "text-primary" },
+  { label: "Track AWB", path: "/order-tracking?mode=awb", icon: Search, tone: "text-info" },
+  { label: "NDR Queue", path: "/ops/ndr", icon: AlertTriangle, tone: "text-danger" },
+  { label: "RTO Queue", path: "/ops/rto", icon: Undo2, tone: "text-warning" },
+  { label: "Rate Calc", path: "/rate-calculator", icon: Calculator, tone: "text-revenue" },
+  { label: "Reports", path: "/reports", icon: FileSpreadsheet, tone: "text-operations" },
+];
+
 export default function AdminHeader({ onMobileMenuOpen, sidebarCollapsed, onToggleSidebar }: AdminHeaderProps) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const pageTitle = getActiveLabel(pathname);
   const [menuOpen, setMenuOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [awbQuery, setAwbQuery] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
   const bellRef = useRef<HTMLDivElement>(null);
+  const quickRef = useRef<HTMLDivElement>(null);
   const { user, logout, isLoggingOut } = useAuth();
   const qc = useQueryClient();
 
@@ -82,7 +102,7 @@ export default function AdminHeader({ onMobileMenuOpen, sidebarCollapsed, onTogg
   }, [user, qc]);
 
   useEffect(() => {
-    if (!menuOpen && !bellOpen) return;
+    if (!menuOpen && !bellOpen && !quickOpen) return;
     function handleClickOutside(e: MouseEvent) {
       if (menuOpen && menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
@@ -90,15 +110,26 @@ export default function AdminHeader({ onMobileMenuOpen, sidebarCollapsed, onTogg
       if (bellOpen && bellRef.current && !bellRef.current.contains(e.target as Node)) {
         setBellOpen(false);
       }
+      if (quickOpen && quickRef.current && !quickRef.current.contains(e.target as Node)) {
+        setQuickOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [menuOpen, bellOpen]);
+  }, [menuOpen, bellOpen, quickOpen]);
 
   const handleItemClick = (id: string, readAt: string | null, link?: string) => {
     if (!readAt) markRead.mutate(id);
     setBellOpen(false);
     if (link) navigate(link);
+  };
+
+  const handleAwbTrack = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const query = awbQuery.trim();
+    if (!query) return;
+    setQuickOpen(false);
+    navigate(`/order-tracking?mode=awb&q=${encodeURIComponent(query)}`);
   };
 
   return (
@@ -127,6 +158,84 @@ export default function AdminHeader({ onMobileMenuOpen, sidebarCollapsed, onTogg
 
       {/* Right */}
       <div className="flex items-center gap-1.5">
+        <form
+          onSubmit={handleAwbTrack}
+          className="hidden xl:flex items-center h-9 w-[260px] rounded-lg border border-border-light bg-background-elevated/80 shadow-sm overflow-hidden focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary-bg"
+        >
+          <Search className="w-4 h-4 text-info ml-3 shrink-0" />
+          <input
+            value={awbQuery}
+            onChange={(e) => setAwbQuery(e.target.value)}
+            placeholder="Track AWB"
+            className="min-w-0 flex-1 bg-transparent px-2 text-sm text-foreground placeholder:text-muted outline-none"
+          />
+          <button
+            type="submit"
+            disabled={!awbQuery.trim()}
+            className="h-full px-3 text-xs font-bold text-primary hover:bg-primary-bg disabled:text-muted disabled:hover:bg-transparent transition-colors"
+          >
+            Track
+          </button>
+        </form>
+
+        <div className="relative" ref={quickRef}>
+          <button
+            onClick={() => setQuickOpen((v) => !v)}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-primary/20 bg-primary-bg px-3 text-xs font-bold text-primary hover:border-primary/40 hover:bg-primary-bg/80 transition-colors"
+            title="Quick actions"
+          >
+            <Zap className="w-4 h-4" />
+            <span className="hidden sm:inline">Quick</span>
+          </button>
+
+          {quickOpen && (
+            <div className="absolute right-0 mt-2 w-72 rounded-xl border border-border-light bg-background-elevated shadow-xl overflow-hidden">
+              <div className="px-3 py-2.5 border-b border-border-light bg-background-panel">
+                <p className="text-xs font-bold text-foreground">Quick Actions</p>
+                <p className="text-[11px] text-muted">Jump to daily admin work</p>
+              </div>
+              <div className="p-2 grid grid-cols-2 gap-1.5">
+                {QUICK_ACTIONS.map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <button
+                      key={action.path}
+                      onClick={() => {
+                        setQuickOpen(false);
+                        navigate(action.path);
+                      }}
+                      className="flex items-center gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left text-xs font-semibold text-foreground hover:border-border-light hover:bg-background transition-colors"
+                    >
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-muted">
+                        <Icon className={`w-3.5 h-3.5 ${action.tone}`} />
+                      </span>
+                      <span className="min-w-0 truncate">{action.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <form onSubmit={handleAwbTrack} className="border-t border-border-light p-2 xl:hidden">
+                <div className="flex h-9 items-center rounded-lg border border-border-light bg-background px-2 focus-within:border-primary/50">
+                  <Search className="w-4 h-4 text-info shrink-0" />
+                  <input
+                    value={awbQuery}
+                    onChange={(e) => setAwbQuery(e.target.value)}
+                    placeholder="AWB number"
+                    className="min-w-0 flex-1 bg-transparent px-2 text-sm text-foreground placeholder:text-muted outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!awbQuery.trim()}
+                    className="text-xs font-bold text-primary disabled:text-muted"
+                  >
+                    Track
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+
         <ThemeToggle />
 
         {/* Notification bell */}
