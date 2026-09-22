@@ -8,6 +8,32 @@ export const STATIC_USERS_KEY = "shipsy-static-users";
 export const STATIC_LOCATIONS_KEY = "shipsy-static-locations";
 export const STATIC_ADMIN_KEY = "shipsy-admin-user";
 export const STATIC_ADMIN_ACCOUNT_KEY = "shipsy-static-admin-account";
+const CLIENT_ACCOUNTS_KEY = "shipsy-client-accounts";
+const CLIENT_USER_KEY = "shipsy-client-user";
+const CLIENT_COMPANY_PROFILE_KEY = "shipsy-client-company-profile";
+
+type ClientAccount = {
+  id?: string;
+  name?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  isVerified?: boolean;
+  onboardingComplete?: boolean;
+};
+
+type ClientCompanyProfile = {
+  businessName?: string | null;
+  website?: string | null;
+  supportEmail?: string | null;
+  contactNumber?: string | null;
+  address?: string | null;
+  pincode?: string | null;
+  city?: string | null;
+  state?: string | null;
+  plan?: string | null;
+};
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -42,11 +68,69 @@ export function writeStaticPlans(plans: Plan[]): Plan[] {
 
 export function readStaticUsers(): UserListItem[] {
   assignBasicPlan();
-  return readJson<UserListItem[]>(STATIC_USERS_KEY, []);
+  return mergeClientPanelUsers(readJson<UserListItem[]>(STATIC_USERS_KEY, []));
 }
 
 export function writeStaticUsers(users: UserListItem[]): UserListItem[] {
   return writeJson(STATIC_USERS_KEY, users);
+}
+
+function clientName(user: ClientAccount): string | null {
+  return user.name ?? ([user.firstName, user.lastName].filter(Boolean).join(" ") || null);
+}
+
+function clientBusinessName(user: ClientAccount, profile: ClientCompanyProfile | null): string | null {
+  if (profile?.businessName) return profile.businessName;
+  const name = clientName(user);
+  return name ? `${name} Store` : user.email ?? user.phone ?? "New Seller";
+}
+
+function toSeller(user: ClientAccount, existing: UserListItem | undefined, profile: ClientCompanyProfile | null): UserListItem | null {
+  if (!user.id) return null;
+  const updatedAt = nowIso();
+  return {
+    id: user.id,
+    name: clientName(user),
+    firstName: user.firstName ?? null,
+    lastName: user.lastName ?? null,
+    email: user.email ?? profile?.supportEmail ?? null,
+    phone: user.phone ?? profile?.contactNumber ?? null,
+    businessName: clientBusinessName(user, profile),
+    pincode: profile?.pincode ?? existing?.pincode ?? null,
+    city: profile?.city ?? existing?.city ?? null,
+    state: profile?.state ?? existing?.state ?? null,
+    website: profile?.website ?? existing?.website ?? null,
+    supportEmail: profile?.supportEmail ?? user.email ?? existing?.supportEmail ?? null,
+    contactNumber: profile?.contactNumber ?? user.phone ?? existing?.contactNumber ?? null,
+    address: profile?.address ?? existing?.address ?? null,
+    sellsOn: existing?.sellsOn?.length ? existing.sellsOn : ["Website"],
+    monthlyShipmentVolume: existing?.monthlyShipmentVolume ?? null,
+    lastLogin: existing?.lastLogin ?? updatedAt,
+    isActive: existing?.isActive ?? true,
+    onboardingComplete: user.onboardingComplete ?? existing?.onboardingComplete ?? false,
+    isVerified: user.isVerified ?? existing?.isVerified ?? true,
+    kycStatus: user.onboardingComplete ? "approved" : existing?.kycStatus ?? "not_submitted",
+    plan: profile?.plan ?? existing?.plan ?? "basic",
+    createdAt: existing?.createdAt ?? updatedAt,
+    updatedAt,
+  };
+}
+
+function mergeClientPanelUsers(users: UserListItem[]): UserListItem[] {
+  if (typeof window === "undefined") return users;
+  const accounts = readJson<ClientAccount[]>(CLIENT_ACCOUNTS_KEY, []);
+  const currentUser = readJson<ClientAccount | null>(CLIENT_USER_KEY, null);
+  const profile = readJson<ClientCompanyProfile | null>(CLIENT_COMPANY_PROFILE_KEY, null);
+  const clientUsers = [...accounts, ...(currentUser ? [currentUser] : [])];
+  if (clientUsers.length === 0) return users;
+
+  const byId = new Map(users.map((user) => [user.id, user]));
+  clientUsers.forEach((clientUser) => {
+    const seller = toSeller(clientUser, clientUser.id ? byId.get(clientUser.id) : undefined, profile);
+    if (seller) byId.set(seller.id, seller);
+  });
+
+  return Array.from(byId.values());
 }
 
 export function readStaticLocations(): LocationListItem[] {

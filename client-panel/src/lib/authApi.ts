@@ -1,5 +1,6 @@
 import type { User } from "@/contexts/AuthContext";
 import { api, setAccessToken } from "./api";
+import { mirrorClientSellerToAdmin } from "./adminSellerMirror";
 import { isCourierApiConfigured, loginCourierApi, shouldUseCourierApi } from "./courierApi";
 import { shouldUseStaticClientData } from "./staticMode";
 
@@ -87,6 +88,7 @@ function persistUser(user: User): User {
   const normalized = withOnboardingState(user);
   localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(normalized));
   saveAccount(normalized);
+  mirrorClientSellerToAdmin(normalized);
   setAccessToken("static-client-token");
   return normalized;
 }

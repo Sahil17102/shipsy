@@ -1,5 +1,7 @@
 import { api } from "@/lib/api";
+import { mirrorClientSellerToAdmin } from "@/lib/adminSellerMirror";
 import { shouldUseStaticClientData } from "@/lib/staticMode";
+import type { User } from "@/contexts/AuthContext";
 import type { ProfileResponse, ProfileUpdatePayload } from "./types";
 
 const COMPANY_PROFILE_STORAGE_KEY = "shipsy-client-company-profile";
@@ -17,6 +19,16 @@ function readUserName(): { firstName?: string; lastName?: string; email?: string
     };
   } catch {
     return {};
+  }
+}
+
+function readCurrentUser(): User | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const user = JSON.parse(localStorage.getItem(USER_STORAGE_KEY) || "{}") as User;
+    return user?.id ? user : null;
+  } catch {
+    return null;
   }
 }
 
@@ -65,6 +77,8 @@ function writeStaticProfile(payload: ProfileUpdatePayload): ProfileResponse {
   const profile = { ...current, ...payload };
   if (typeof window !== "undefined") {
     localStorage.setItem(COMPANY_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+    const user = readCurrentUser();
+    if (user?.id) mirrorClientSellerToAdmin(user, profile);
   }
   return { success: true, profile };
 }
@@ -84,7 +98,14 @@ export const profileApi = {
     if (!shouldUseStaticClientData()) {
       try {
         const { data } = await api.put("/profile", payload);
-        if (data?.profile) return data;
+        if (data?.profile) {
+          if (typeof window !== "undefined") {
+            localStorage.setItem(COMPANY_PROFILE_STORAGE_KEY, JSON.stringify(data.profile));
+            const user = readCurrentUser();
+            if (user?.id) mirrorClientSellerToAdmin(user, data.profile);
+          }
+          return data;
+        }
       } catch {
         // Persist locally when the static panel has no backend.
       }
