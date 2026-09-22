@@ -113,25 +113,59 @@ function logixMitraCredentials(): ProviderCredentialsResponse {
   };
 }
 
-function isListProvidersResponse(data: unknown): data is ListProvidersResponse {
-  const value = data as Partial<ListProvidersResponse> | null;
-  return Boolean(
-    value &&
-      Array.isArray(value.providers) &&
-      value.stats &&
-      value.pagination,
-  );
+function delhiveryCredentials(): ProviderCredentialsResponse {
+  return {
+    b2c: {
+      fields: [
+        { key: "apiToken", label: "B2C API Token", type: "password", required: true },
+        { key: "environment", label: "Environment", type: "text", required: false },
+        { key: "baseUrl", label: "Base URL Override", type: "text", required: false },
+      ],
+      description: "Used for Delhivery B2C serviceability, shipment creation, tracking, labels, pickup requests, warehouses, and NDR actions.",
+      values: {
+        apiToken: "",
+        environment: "production",
+        baseUrl: "https://track.delhivery.com",
+      },
+    },
+    b2b: {
+      fields: [
+        { key: "username", label: "B2B Username", type: "text", required: false },
+        { key: "password", label: "B2B Password", type: "password", required: false },
+        { key: "jwtToken", label: "B2B JWT Token", type: "password", required: false },
+        { key: "environment", label: "Environment", type: "text", required: false },
+        { key: "baseUrl", label: "Base URL Override", type: "text", required: false },
+      ],
+      description: "Used for Delhivery B2B LTL login, serviceability, manifest, pickup, documents, appointments, and tracking.",
+      values: {
+        username: "",
+        password: "",
+        jwtToken: "",
+        environment: "production",
+        baseUrl: "https://ltl-clients-api.delhivery.com",
+      },
+      sameAsB2c: false,
+    },
+  };
 }
 
-function readStaticProviders(): ProviderListItem[] {
-  const providers = readJson<ProviderListItem[]>(STATIC_SERVICE_PROVIDERS_KEY, []);
-  const filtered = providers.filter(
-    (provider) => !["teampafex", "shadowfax"].includes(provider.serviceProvider.toLowerCase()),
-  );
-  if (filtered.length !== providers.length) writeStaticProviders(filtered);
-  const hasLogixMitra = filtered.some((provider) => provider.serviceProvider.toLowerCase() === "logixmitra");
-  if (hasLogixMitra) return filtered;
+function defaultSeedProviders(): ProviderListItem[] {
+  const updatedAt = nowIso();
   return [
+    {
+      id: "sp-delhivery",
+      serviceProvider: "delhivery",
+      displayName: "Delhivery",
+      logoUrl: "",
+      totalCouriers: 2,
+      enabledCouriers: 2,
+      serviceProviderDisplayName: "Delhivery",
+      isEnabled: true,
+      b2c: { configured: true },
+      b2b: { configured: true, sameAsB2c: false },
+      status: "active",
+      updatedAt,
+    },
     {
       id: "sp-logixmitra",
       serviceProvider: "logixmitra",
@@ -144,10 +178,34 @@ function readStaticProviders(): ProviderListItem[] {
       b2c: { configured: true },
       b2b: { configured: true, sameAsB2c: true },
       status: "active",
-      updatedAt: nowIso(),
+      updatedAt,
     },
-    ...filtered,
   ];
+}
+
+function mergeSeedProviders(providers: ProviderListItem[]): ProviderListItem[] {
+  const blocked = new Set(["teampafex", "shadowfax"]);
+  const filtered = providers.filter((provider) => !blocked.has(provider.serviceProvider.toLowerCase()));
+  const seen = new Set(filtered.map((provider) => provider.serviceProvider.toLowerCase()));
+  const missingSeeds = defaultSeedProviders().filter((provider) => !seen.has(provider.serviceProvider));
+  return [...missingSeeds, ...filtered];
+}
+
+function isListProvidersResponse(data: unknown): data is ListProvidersResponse {
+  const value = data as Partial<ListProvidersResponse> | null;
+  return Boolean(
+    value &&
+      Array.isArray(value.providers) &&
+      value.stats &&
+      value.pagination,
+  );
+}
+
+function readStaticProviders(): ProviderListItem[] {
+  const providers = readJson<ProviderListItem[]>(STATIC_SERVICE_PROVIDERS_KEY, []);
+  const filtered = mergeSeedProviders(providers);
+  if (filtered.length !== providers.length) writeStaticProviders(filtered);
+  return filtered;
 }
 
 function writeStaticProviders(providers: ProviderListItem[]): ProviderListItem[] {
@@ -156,7 +214,12 @@ function writeStaticProviders(providers: ProviderListItem[]): ProviderListItem[]
 
 function readStaticCredentials(providerId: string): ProviderCredentialsResponse {
   const all = readJson<Record<string, ProviderCredentialsResponse>>(STATIC_SERVICE_PROVIDER_CREDS_KEY, {});
-  const fallback = providerId === "sp-logixmitra" ? logixMitraCredentials() : defaultCredentials();
+  const fallback =
+    providerId === "sp-delhivery"
+      ? delhiveryCredentials()
+      : providerId === "sp-logixmitra"
+        ? logixMitraCredentials()
+        : defaultCredentials();
   const creds = all[providerId] ?? fallback;
   const merged: ProviderCredentialsResponse = {
     b2c: { ...fallback.b2c, ...creds.b2c, values: { ...fallback.b2c.values, ...creds.b2c?.values } },
@@ -221,7 +284,24 @@ export const serviceProvidersApi = {
 
     try {
       const { data } = await api.get("/service-providers", { params });
-      return isListProvidersResponse(data) && data.providers.length > 0 ? data : listStaticProviders(params);
+      if (isListProvidersResponse(data) && data.providers.length > 0) {
+        const providers = mergeSeedProviders(data.providers);
+        return {
+          ...data,
+          providers,
+          stats: {
+            total: providers.length,
+            active: providers.filter((provider) => provider.status === "active").length,
+            b2cConfigured: providers.filter((provider) => provider.b2c.configured).length,
+          },
+          pagination: {
+            ...data.pagination,
+            total: providers.length,
+            totalPages: Math.max(1, Math.ceil(providers.length / data.pagination.limit)),
+          },
+        };
+      }
+      return listStaticProviders(params);
     } catch {
       return listStaticProviders(params);
     }

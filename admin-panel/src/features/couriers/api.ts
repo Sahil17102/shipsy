@@ -20,7 +20,7 @@ export const couriersApi = {
 
     try {
       const { data } = await api.get("/couriers", { params });
-      return Array.isArray(data?.couriers) ? data as ListCouriersResponse : defaultCourierResponse(params);
+      return Array.isArray(data?.couriers) && data.couriers.length > 0 ? data as ListCouriersResponse : defaultCourierResponse(params);
     } catch {
       return defaultCourierResponse(params);
     }

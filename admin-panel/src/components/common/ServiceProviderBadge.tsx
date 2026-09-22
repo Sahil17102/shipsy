@@ -17,7 +17,7 @@ export default function ServiceProviderBadge({ slug, label }: ServiceProviderBad
 
   return (
     <Tag bordered={false} color={variant.color}>
-      {variant.label ?? label}
+      {label ?? variant.label}
     </Tag>
   );
 }

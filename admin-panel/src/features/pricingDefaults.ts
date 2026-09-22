@@ -22,6 +22,8 @@ export const DEFAULT_B2B_ZONES: B2bZone[] = [
 
 export function defaultCouriers(): CourierListItem[] {
   return [
+    makeCourier("delhivery:b2c-surface", "Delhivery B2C Surface", "b2c", "delhivery", "Delhivery"),
+    makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery"),
     makeCourier("logixmitra:surface", "LogixMitra Surface", "b2c", "logixmitra", "LogixMitra"),
     makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra"),
     makeCourier("manual:80", "Standard Courier", "b2c"),
@@ -134,7 +136,10 @@ export function defaultB2bZoneRates(params?: {
   originZone?: string;
   destinationZone?: string;
 }): B2bZoneRate[] {
-  const courier = makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra");
+  const couriers = [
+    makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery"),
+    makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra"),
+  ];
   const baseRates: Record<string, Record<string, number>> = {
     N: { N: 42, W: 52, S: 62, E: 58, NE: 78 },
     W: { N: 52, W: 44, S: 54, E: 62, NE: 82 },
@@ -143,29 +148,32 @@ export function defaultB2bZoneRates(params?: {
     NE: { N: 78, W: 82, S: 86, E: 72, NE: 55 },
   };
 
-  return DEFAULT_B2B_ZONES.flatMap((origin) =>
-    DEFAULT_B2B_ZONES.map((destination) => {
-      const rate = baseRates[origin.code]?.[destination.code] ?? 65;
-      return {
-        id: `seed-b2b-rate-${origin.code}-${destination.code}`.toLowerCase(),
-        plan: "basic",
-        originZone: origin,
-        destinationZone: destination,
-        courier: {
-          id: courier.id,
-          name: courier.name,
+  return couriers.flatMap((courier, courierIndex) =>
+    DEFAULT_B2B_ZONES.flatMap((origin) =>
+      DEFAULT_B2B_ZONES.map((destination) => {
+        const baseRate = baseRates[origin.code]?.[destination.code] ?? 65;
+        const rate = courier.serviceProvider === "delhivery" ? Math.max(38, baseRate - 2) : baseRate;
+        return {
+          id: `seed-b2b-rate-${courier.serviceProvider}-${origin.code}-${destination.code}`.toLowerCase(),
+          plan: "basic",
+          originZone: origin,
+          destinationZone: destination,
+          courier: {
+            id: courier.id,
+            name: courier.name,
+            serviceProvider: courier.serviceProvider,
+          },
           serviceProvider: courier.serviceProvider,
-        },
-        serviceProvider: courier.serviceProvider,
-        ratePerKg: rate,
-        rtoRatePerKg: Math.round(rate * 0.8),
-        volumetricDivisor: 5000,
-        effectiveFrom: CREATED_AT,
-        isActive: true,
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-      };
-    }),
+          ratePerKg: rate + courierIndex,
+          rtoRatePerKg: Math.round(rate * 0.8),
+          volumetricDivisor: 5000,
+          effectiveFrom: CREATED_AT,
+          isActive: true,
+          createdAt: CREATED_AT,
+          updatedAt: CREATED_AT,
+        };
+      }),
+    ),
   ).filter((rate) => {
     if (params?.courier && rate.courier.id !== params.courier) return false;
     if (params?.plan && rate.plan !== params.plan) return false;
@@ -194,14 +202,15 @@ export function defaultB2bPincodes(params?: {
   const west = DEFAULT_B2B_ZONES[1];
   const south = DEFAULT_B2B_ZONES[2];
   const east = DEFAULT_B2B_ZONES[3];
-  const courier = makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra");
+  const delhiveryCourier = makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery");
+  const logixMitraCourier = makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra");
   const rows: B2bPincode[] = [
-    makeB2bPincode("110001", "New Delhi", "Delhi", north, courier),
-    makeB2bPincode("400001", "Mumbai", "Maharashtra", west, courier),
-    makeB2bPincode("560102", "Bengaluru", "Karnataka", south, courier),
-    makeB2bPincode("700001", "Kolkata", "West Bengal", east, courier),
-    makeB2bPincode("395001", "Surat", "Gujarat", west, courier),
-    makeB2bPincode("800001", "Patna", "Bihar", east, courier),
+    makeB2bPincode("110001", "New Delhi", "Delhi", north, delhiveryCourier),
+    makeB2bPincode("400001", "Mumbai", "Maharashtra", west, delhiveryCourier),
+    makeB2bPincode("560102", "Bengaluru", "Karnataka", south, delhiveryCourier),
+    makeB2bPincode("700001", "Kolkata", "West Bengal", east, logixMitraCourier),
+    makeB2bPincode("395001", "Surat", "Gujarat", west, logixMitraCourier),
+    makeB2bPincode("800001", "Patna", "Bihar", east, logixMitraCourier),
   ];
   const filtered = rows.filter((row) => {
     if (params?.pincode && !row.pincode.includes(params.pincode)) return false;
@@ -229,9 +238,12 @@ export function defaultB2bAdditionalCharges(params?: {
   courier?: string;
   plan?: string;
 }): B2bAdditionalCharge[] {
-  const courier = makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra");
-  const charge: B2bAdditionalCharge = {
-    id: "seed-b2b-additional-logixmitra-b2b-basic",
+  const couriers = [
+    makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery"),
+    makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra"),
+  ];
+  return couriers.map((courier): B2bAdditionalCharge => ({
+    id: `seed-b2b-additional-${courier.serviceProvider}-basic`,
     plan: "basic",
     courier: {
       id: courier.id,
@@ -241,7 +253,7 @@ export function defaultB2bAdditionalCharges(params?: {
     serviceProvider: courier.serviceProvider,
     awbCharges: 0,
     minimumChargeableWeight: 10,
-    minimumChargeableAmount: 450,
+    minimumChargeableAmount: courier.serviceProvider === "delhivery" ? 420 : 450,
     codChargesFlat: 60,
     codPercent: 2,
     codMinimum: 60,
@@ -265,10 +277,11 @@ export function defaultB2bAdditionalCharges(params?: {
     isActive: true,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
-  };
-  if (params?.courier && charge.courier.id !== params.courier) return [];
-  if (params?.plan && charge.plan !== params.plan) return [];
-  return [charge];
+  })).filter((charge) => {
+    if (params?.courier && charge.courier.id !== params.courier) return false;
+    if (params?.plan && charge.plan !== params.plan) return false;
+    return true;
+  });
 }
 
 function makeCourier(
@@ -294,6 +307,13 @@ function makeCourier(
 
 function defaultB2cPricing(): B2cPricingItem[] {
   return [
+    makeB2cPricing("delhivery:b2c-surface", "Delhivery B2C Surface", "surface", [
+      [35, 29, 40, 2],
+      [43, 35, 40, 2],
+      [55, 45, 40, 2],
+      [69, 55, 40, 2],
+      [90, 70, 40, 2],
+    ], "delhivery"),
     makeB2cPricing("logixmitra:surface", "LogixMitra Surface", "surface", [
       [36, 30, 40, 2],
       [44, 36, 40, 2],
