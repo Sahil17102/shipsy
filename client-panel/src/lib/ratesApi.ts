@@ -221,18 +221,43 @@ function codCharge(paymentType: "prepaid" | "cod", orderAmount = 0): number {
   return Math.max(35, round(orderAmount * 0.02));
 }
 
-function makeFallbackB2cRates(params: AvailableCouriersParams): AvailableCourier[] {
+interface SharedCourier {
+  id: string;
+  name: string;
+  serviceProvider: string;
+  serviceProviderDisplayName: string;
+}
+
+async function getSharedCouriers(businessType: "b2c" | "b2b"): Promise<SharedCourier[]> {
+  try {
+    const response = await fetch(`https://shipsy-kyio.onrender.com/api/couriers?businessType=${businessType}&isEnabled=true`, { cache: "no-store" });
+    if (!response.ok) return [];
+    const data = await response.json() as { couriers?: SharedCourier[] };
+    return Array.isArray(data.couriers) ? data.couriers : [];
+  } catch {
+    return [];
+  }
+}
+
+function makeFallbackB2cRates(params: AvailableCouriersParams, shared: SharedCourier[] = []): AvailableCourier[] {
   const actualKg = kgFromGrams(params.weight);
   const volKg = volumetricKg(params.length, params.breadth, params.height);
   const chargeableKg = Math.max(actualKg, volKg, 0.5);
   const chargeableGrams = Math.ceil(chargeableKg * 1000);
   const slabs = Math.max(1, Math.ceil(chargeableKg / 0.5));
   const cod = codCharge(params.paymentType, params.orderAmount);
-  const options = [
-    { courierId: "80", name: "DLVY Standard", serviceProvider: "teampafex", displayName: "Teampafex", freightPerSlab: 54, rtoPerSlab: 48 },
-    { courierId: "logixmitra:surface", name: "LogixMitra Surface", serviceProvider: "logixmitra", displayName: "LogixMitra", freightPerSlab: 52, rtoPerSlab: 46 },
-    { courierId: "shadowfax:forward", name: "Shadowfax", serviceProvider: "shadowfax", displayName: "Shadowfax", freightPerSlab: 49, rtoPerSlab: 44 },
+  const defaults: SharedCourier[] = [
+    { id: "delhivery:b2c-surface", name: "Delhivery B2C Surface", serviceProvider: "delhivery", serviceProviderDisplayName: "Delhivery" },
+    { id: "logixmitra:surface", name: "LogixMitra Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "LogixMitra" },
   ];
+  const options = (shared.length > 0 ? shared : defaults).map((item, index) => ({
+    courierId: item.id,
+    name: item.name,
+    serviceProvider: item.serviceProvider,
+    displayName: item.serviceProviderDisplayName,
+    freightPerSlab: Math.max(42, 54 - index * 2),
+    rtoPerSlab: Math.max(36, 48 - index * 2),
+  }));
 
   return options.map((option, index) => {
     const freight = round(option.freightPerSlab * slabs);
@@ -301,7 +326,7 @@ function makeFallbackFshipB2bRates(params: B2bAvailableCouriersParams): B2bAvail
   }];
 }
 
-function makeFallbackB2bRates(params: B2bAvailableCouriersParams): B2bAvailableCourier[] {
+function makeFallbackB2bRates(params: B2bAvailableCouriersParams, shared: SharedCourier[] = []): B2bAvailableCourier[] {
   const packages = params.packages.map((pkg) => ({
     deadWeight: pkg.weight,
     volumetricWeight: volumetricKg(pkg.length, pkg.breadth, pkg.height),
@@ -314,12 +339,17 @@ function makeFallbackB2bRates(params: B2bAvailableCouriersParams): B2bAvailableC
   const gst = round((baseFreight + fuel + cod) * 0.18);
   const total = round(baseFreight + fuel + cod + gst);
 
-  return [
-    {
-      courierId: "152",
-      name: "Delhivery B2B",
-      serviceProvider: "delhivery_b2b",
-      serviceProviderDisplayName: "Teampafex",
+  const defaults: SharedCourier[] = [
+    { id: "delhivery:b2b-ltl", name: "Delhivery B2B LTL", serviceProvider: "delhivery", serviceProviderDisplayName: "Delhivery" },
+    { id: "logixmitra:b2b-surface", name: "LogixMitra B2B Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "LogixMitra" },
+  ];
+  return (shared.length > 0 ? shared : defaults).map((option, index) => {
+    const adjustedFreight = round(baseFreight * (1 + index * 0.04));
+    return {
+      courierId: option.id,
+      name: option.name,
+      serviceProvider: option.serviceProvider,
+      serviceProviderDisplayName: option.serviceProviderDisplayName,
       logo: null,
       zone: {
         originCode: params.origin,
@@ -330,20 +360,20 @@ function makeFallbackB2bRates(params: B2bAvailableCouriersParams): B2bAvailableC
       billableWeight,
       packages,
       rate: {
-        baseFreight,
+        baseFreight: adjustedFreight,
         overheads: [
           { code: "FSC", name: "Fuel Surcharge", type: "percent", amount: fuel },
           ...(cod > 0 ? [{ code: "COD", name: "COD Charges", type: "fixed", amount: cod }] : []),
           { code: "GST", name: "GST", type: "percent", amount: gst },
         ],
         rtoRate: round(baseFreight * 0.8),
-        total,
+        total: round(total + adjustedFreight - baseFreight),
         billableWeight,
         packages,
       },
-      tag: "economy",
-    },
-  ];
+      tag: index === 0 ? "economy" : undefined,
+    };
+  });
 }
 
 async function enrichShippingRates(
@@ -661,6 +691,7 @@ export const ratesApi = {
   getAvailableCouriers: async (
     params: AvailableCouriersParams,
   ): Promise<AvailableCourier[]> => {
+    const sharedCouriers = await getSharedCouriers("b2c");
     if (shouldUseCourierApi()) {
       try {
         const couriers = await getCourierApiRates(params);
@@ -668,13 +699,13 @@ export const ratesApi = {
           const seen = new Set(couriers.map((item) => item.courierId));
           return [
             ...couriers,
-            ...makeFallbackB2cRates(params).filter((item) => !seen.has(item.courierId)),
+            ...makeFallbackB2cRates(params, sharedCouriers).filter((item) => !seen.has(item.courierId)),
           ];
         }
       } catch {
         // Keep courier selection usable on static deploys even before the courier token is present.
       }
-      return makeFallbackB2cRates(params);
+      return makeFallbackB2cRates(params, sharedCouriers);
     }
 
     if (shouldUseFshipApi()) {
@@ -686,7 +717,7 @@ export const ratesApi = {
       } catch {
         // Keep order creation screen usable while credentials or CORS are being fixed.
       }
-      return makeFallbackB2cRates(params).filter((item) => item.serviceProvider === "logixmitra");
+      return makeFallbackB2cRates(params, sharedCouriers).filter((item) => item.serviceProvider === "logixmitra");
     }
 
     try {
@@ -701,12 +732,12 @@ export const ratesApi = {
         return [
           ...data.data,
           ...fshipRates,
-          ...makeFallbackB2cRates(params).filter((item) => !seen.has(item.courierId)),
+          ...makeFallbackB2cRates(params, sharedCouriers).filter((item) => !seen.has(item.courierId)),
         ];
       }
-      return makeFallbackB2cRates(params);
+      return makeFallbackB2cRates(params, sharedCouriers);
     } catch {
-      return makeFallbackB2cRates(params);
+      return makeFallbackB2cRates(params, sharedCouriers);
     }
   },
 
@@ -718,6 +749,7 @@ export const ratesApi = {
   getB2bAvailableCouriers: async (
     params: B2bAvailableCouriersParams,
   ): Promise<B2bAvailableCourier[]> => {
+    const sharedCouriers = await getSharedCouriers("b2b");
     if (shouldUseCourierApi()) {
       try {
         const couriers = await getCourierApiB2bRates(params);
@@ -725,7 +757,7 @@ export const ratesApi = {
       } catch {
         // Keep courier selection usable on static deploys even before the courier token is present.
       }
-      return makeFallbackB2bRates(params);
+      return makeFallbackB2bRates(params, sharedCouriers);
     }
 
     if (shouldUseFshipApi()) {
@@ -749,9 +781,9 @@ export const ratesApi = {
         const fshipRates = isFshipApiConfigured() ? await getFshipB2bRates(params).catch(() => []) : [];
         return [...data.data, ...fshipRates];
       }
-      return makeFallbackB2bRates(params);
+      return makeFallbackB2bRates(params, sharedCouriers);
     } catch {
-      return makeFallbackB2bRates(params);
+      return makeFallbackB2bRates(params, sharedCouriers);
     }
   },
 };

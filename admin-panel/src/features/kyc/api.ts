@@ -5,6 +5,7 @@ import type { AdminKycResponse, DocumentField, KycRecord, KycStatus } from "./ty
 
 const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
 const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
+const APPROVED_DEMO_USER_ID = "client-sahilmittal1920@gmail.com";
 
 function documentFor(status: KycStatus): DocumentField {
   return status === "approved"
@@ -75,6 +76,7 @@ export async function fetchDocumentBlob(
 export const adminKycApi = {
   getByUserId: async (userId: string): Promise<AdminKycResponse> => {
     if (useStaticData) {
+      if (userId === APPROVED_DEMO_USER_ID) return kycForUser(userId, "approved");
       const user = await sharedUserById(userId);
       return kycForUser(userId, user?.kycStatus ?? "not_submitted");
     }
