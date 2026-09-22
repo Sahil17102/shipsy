@@ -3,6 +3,22 @@ import { shouldUseStaticClientData } from "./staticMode";
 
 const STATIC_WALLET_TRANSACTIONS_KEY = "shipsy-static-wallet-transactions";
 const STATIC_WALLET_ID = "wallet-demo-client-user";
+const SHARED_WALLET_URL = "https://shipsy-kyio.onrender.com/api/wallets";
+
+function currentUserId(): string {
+  try {
+    const user = JSON.parse(localStorage.getItem("shipsy-client-user") || "{}") as { id?: string };
+    return user.id || "demo-client-user";
+  } catch { return "demo-client-user"; }
+}
+
+async function sharedWallet(params?: Record<string, string | number>): Promise<any> {
+  const query = new URLSearchParams({ userId: currentUserId() });
+  Object.entries(params ?? {}).forEach(([key, value]) => query.set(key, String(value)));
+  const response = await fetch(`${SHARED_WALLET_URL}?${query}`, { cache: "no-store" });
+  if (!response.ok) throw new Error("Wallet service unavailable");
+  return response.json();
+}
 
 export interface WalletBalance {
   balance: number;
@@ -147,6 +163,7 @@ function filterStaticTransactions(
 export const walletApi = {
   getBalance: async (): Promise<WalletBalance> => {
     if (shouldUseStaticClientData()) {
+      try { const data = await sharedWallet(); return data.wallet; } catch { /* Fall back to local demo data. */ }
       return { balance: getStaticBalance(), currency: "INR" };
     }
 
@@ -165,6 +182,7 @@ export const walletApi = {
     sortOrder?: string;
   }): Promise<WalletTransactionsResponse> => {
     if (shouldUseStaticClientData()) {
+      try { return await sharedWallet(params as Record<string, string | number>); } catch { /* Fall back to local demo data. */ }
       return filterStaticTransactions(readStaticTransactions(), params);
     }
 
@@ -211,6 +229,13 @@ export const walletApi = {
 
   rechargeStatic: async (amount: number): Promise<VerifyRechargeResponse> => {
     const roundedAmount = Math.round(amount * 100) / 100;
+    try {
+      const response = await fetch(SHARED_WALLET_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: currentUserId(), type: "credit", amount: roundedAmount, reason: "Wallet recharge", source: "client_recharge" }) });
+      if (response.ok) {
+        const data = await response.json() as { message: string; wallet: WalletBalance };
+        return { message: data.message, balance: data.wallet.balance, creditedAmount: roundedAmount };
+      }
+    } catch { /* Fall back to local recharge while the shared service wakes up. */ }
     const transactions = readStaticTransactions();
     const transaction: WalletTransaction = {
       id: `txn-${Date.now()}`,

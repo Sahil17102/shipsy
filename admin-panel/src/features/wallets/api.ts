@@ -12,6 +12,7 @@ import type {
 
 const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
 const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
+const SHARED_WALLETS_URL = `${SHARED_API_BASE_URL}/wallets`;
 const STATIC_WALLET_TRANSACTIONS_KEY = "shipsy-static-wallet-transactions";
 const STATIC_WALLET_ID = "wallet-shipsy-demo-seller";
 
@@ -120,6 +121,14 @@ async function sharedUserById(userId: string) {
   return readStaticUsers().find((item) => item.id === userId);
 }
 
+async function readSharedWallet(userId: string, params?: Record<string, unknown>) {
+  const query = new URLSearchParams({ userId });
+  Object.entries(params ?? {}).forEach(([key, value]) => value != null && query.set(key, String(value)));
+  const response = await fetch(`${SHARED_WALLETS_URL}?${query}`, { cache: "no-store" });
+  if (!response.ok) throw new Error("Wallet service unavailable");
+  return response.json();
+}
+
 function paginate<T>(items: T[], page = 1, limit = 20) {
   const total = items.length;
   const start = (page - 1) * limit;
@@ -133,6 +142,12 @@ export const walletsApi = {
   list: async (params?: ListWalletsParams) => {
     if (useStaticData) {
       let wallets = readStaticUsers().map((user) => walletForUser(user.id));
+      try {
+        const response = await fetch(SHARED_WALLETS_URL, { cache: "no-store" });
+        const shared = await response.json() as { wallets?: Array<{ userId: string; balance: number }> };
+        const balances = new Map((shared.wallets ?? []).map((wallet) => [wallet.userId, wallet.balance]));
+        wallets = wallets.map((wallet) => ({ ...wallet, balance: balances.get(wallet.userId) ?? wallet.balance }));
+      } catch { /* Keep local balances while the shared service wakes up. */ }
       if (params?.search) {
         const query = params.search.toLowerCase();
         wallets = wallets.filter((wallet) =>
@@ -167,7 +182,11 @@ export const walletsApi = {
 
   getByUserId: async (userId: string) => {
     if (useStaticData) {
-      return { wallet: walletForUser(userId, await sharedUserById(userId)) };
+      const wallet = walletForUser(userId, await sharedUserById(userId));
+      try {
+        const shared = await readSharedWallet(userId) as { wallet: { balance: number; currency: string } };
+        return { wallet: { ...wallet, ...shared.wallet } };
+      } catch { return { wallet }; }
     }
 
     const { data } = await api.get<{ wallet: WalletListItem }>(`/wallets/${userId}`);
@@ -176,6 +195,10 @@ export const walletsApi = {
 
   transactions: async ({ userId, ...params }: ListTransactionsParams) => {
     if (useStaticData) {
+      try {
+        const shared = await readSharedWallet(userId, params) as ListTransactionsResponse;
+        return { transactions: shared.transactions, pagination: shared.pagination };
+      } catch { /* Keep local history while the shared service wakes up. */ }
       let transactions = readStaticTransactions().filter(
         (transaction) => transaction.walletId === `wallet-${userId}`,
       );
@@ -204,6 +227,14 @@ export const walletsApi = {
 
   adjust: async (userId: string, payload: AdjustWalletPayload) => {
     if (useStaticData) {
+      try {
+        const response = await fetch(SHARED_WALLETS_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId, ...payload }) });
+        const shared = await response.json();
+        if (!response.ok) throw new Error(shared.error || "Wallet adjustment failed");
+        return shared;
+      } catch (error) {
+        if (error instanceof Error && error.message === "Insufficient wallet balance") throw error;
+      }
       const transaction: WalletTransaction = {
         id: `admin-wallet-txn-${Date.now()}`,
         walletId: `wallet-${userId}`,

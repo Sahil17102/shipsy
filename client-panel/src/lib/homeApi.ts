@@ -1,5 +1,6 @@
 import { api } from "./api";
 import { shouldUseStaticClientData } from "./staticMode";
+import { walletApi } from "./walletApi";
 
 export interface QuickStats {
   ordersToday: number;
@@ -47,7 +48,10 @@ export const homeApi = {
       recentOrders: [],
     };
 
-    if (shouldUseStaticClientData()) return emptyHome;
+    if (shouldUseStaticClientData()) {
+      const wallet = await walletApi.getBalance().catch(() => ({ balance: 0, currency: "INR" }));
+      return { ...emptyHome, wallet: { balance: wallet.balance } };
+    }
 
     try {
       const { data } = await api.get("/dashboard/home");
