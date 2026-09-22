@@ -1,0 +1,336 @@
+{
+  "info": {
+    "name": "Shipsy Delhivery B2B Proxy",
+    "description": "Postman collection for the server-side Shipsy Delhivery B2B proxy. Set base_url plus delhivery_b2b_token/delhivery_b2b_env in the bundled environment. Login and password reset do not require a bearer token. Optional delhivery_b2b_base_url can be enabled for mocks or endpoint overrides.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "List Supported Operations",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Password Reset",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"passwordReset\",\n  \"payload\": {\n    \"username\": \"registered_username\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"login\",\n  \"payload\": {\n    \"username\": \"registered_username\",\n    \"password\": \"password\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Logout",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"logout\"\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Serviceability",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"serviceability\",\n  \"params\": {\n    \"pincode\": \"122001\",\n    \"weight\": 1\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Expected TAT",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"expectedTat\",\n  \"params\": {\n    \"origin_pin\": \"400093\",\n    \"destination_pin\": \"122001\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Freight Estimator",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"freightEstimator\",\n  \"payload\": {\n    \"dimensions\": [{ \"length_cm\": 11, \"width_cm\": 1.1, \"height_cm\": 11, \"box_count\": 1 }],\n    \"weight_g\": 100000,\n    \"source_pin\": \"400069\",\n    \"consignee_pin\": \"400069\",\n    \"payment_mode\": \"prepaid\",\n    \"inv_amount\": 123,\n    \"freight_mode\": \"fod\",\n    \"rov_insurance\": true\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Freight Charges",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"freightCharges\",\n  \"params\": {\n    \"lrns\": \"{{sample_lrn}}\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Shipment Creation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"createShipment\",\n  \"payload\": {\n    \"lrn\": \"\",\n    \"pickup_location_name\": \"{{sample_warehouse}}\",\n    \"payment_mode\": \"cod\",\n    \"cod_amount\": 122,\n    \"weight\": 100,\n    \"dropoff_location\": { \"consignee_name\": \"Utkarsh\", \"address\": \"sector 7a\", \"city\": \"jajpur\", \"state\": \"odisha\", \"zip\": \"756043\", \"phone\": \"9876543210\", \"email\": \"\" },\n    \"rov_insurance\": true,\n    \"invoices\": [{ \"ewaybill\": \"\", \"inv_num\": \"I22331030453\", \"inv_amt\": 59729.67, \"inv_qr_code\": \"\" }],\n    \"shipment_details\": [{ \"order_id\": \"oid1\", \"box_count\": 1, \"description\": \"Test description\", \"weight\": 1000, \"waybills\": [], \"master\": false }],\n    \"fm_pickup\": false,\n    \"freight_mode\": \"fop\",\n    \"billing_address\": { \"name\": \"Billing Name\", \"company\": \"Company\", \"consignor\": \"Consignor\", \"address\": \"Billing address\", \"city\": \"Gurgaon\", \"state\": \"Haryana\", \"pin\": \"122001\", \"phone\": \"9999999999\", \"gst_number\": \"27ABCDE1234F1Z5\" }\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Shipment Creation Status",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"getShipmentStatus\",\n  \"params\": {\n    \"job_id\": \"{{sample_job_id}}\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Shipment Updation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"updateShipment\",\n  \"params\": { \"lrn\": \"{{sample_lrn}}\" },\n  \"payload\": {\n    \"cod_amount\": 0,\n    \"consignee_name\": \"Rahul\",\n    \"consignee_address\": \"Jammu\",\n    \"consignee_pincode\": \"844120\",\n    \"consignee_phone\": \"9999999999\",\n    \"weight_g\": 30,\n    \"dimensions\": [{ \"width_cm\": 5, \"height_cm\": 4, \"length_cm\": 3, \"box_count\": 1 }],\n    \"invoices\": [{ \"inv_number\": \"inv1\", \"inv_amount\": 1234 }]\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Shipment Updation Status",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"getShipmentUpdateStatus\",\n  \"params\": {\n    \"job_id\": \"{{sample_job_id}}\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Shipment Cancelation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"cancelShipment\",\n  \"params\": {\n    \"lrn\": \"{{sample_lrn}}\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Shipment Tracking",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"trackShipment\",\n  \"params\": {\n    \"lrnum\": \"{{sample_lrn}}\",\n    \"all_wbns\": false\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Booking Appointment",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"bookAppointment\",\n  \"payload\": {\n    \"lrn\": \"{{sample_lrn}}\",\n    \"date\": \"23/07/2027\",\n    \"appointment_slot\": \"12:00 PM-03:00 PM\",\n    \"po_number\": [\"NotApplicable\"],\n    \"appointment_id\": \"\",\n    \"po_expiry_date\": \"23/07/2027\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Pickup Request",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"createPickupRequest\",\n  \"payload\": {\n    \"client_warehouse\": \"{{sample_warehouse}}\",\n    \"pickup_date\": \"2027-07-30\",\n    \"start_time\": \"05:00:00\",\n    \"expected_package_count\": 1\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Pickup Cancelation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"cancelPickupRequest\",\n  \"params\": {\n    \"pickup_id\": \"{{sample_pickup_id}}\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Generate Shipping Label Url",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"generateLabelUrl\",\n  \"params\": {\n    \"size\": \"std\",\n    \"lrn\": \"{{sample_lrn}}\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "LR Copy",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"getLrCopy\",\n  \"params\": {\n    \"lrn\": \"{{sample_lrn}}\",\n    \"lr_copy_type\": \"SHIPPER COPY\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Generate Document",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"generateDocument\",\n  \"params\": { \"doc_type\": \"shipping_label\" },\n  \"payload\": {\n    \"lrns\": [\"{{sample_lrn}}\"],\n    \"size\": \"a4\",\n    \"callback\": {\n      \"uri\": \"https://example.com/delhivery/document-callback\",\n      \"method\": \"POST\",\n      \"authorization\": \"Bearer callback-token\"\n    }\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Generate Documents Status",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"getGenerateDocumentStatus\",\n  \"params\": {\n    \"doc_type\": \"shipping_label\",\n    \"job_id\": \"{{sample_job_id}}\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Download Document",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"downloadDocument\",\n  \"params\": {\n    \"lrn\": \"{{sample_lrn}}\",\n    \"doc_type\": \"LM_POD\",\n    \"auto_download\": false,\n    \"version\": \"latest\"\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Client Warehouse Creation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"createWarehouse\",\n  \"payload\": {\n    \"pin_code\": \"400059\",\n    \"city\": \"Gurgaon\",\n    \"state\": \"Haryana\",\n    \"country\": \"India\",\n    \"address_details\": { \"address\": \"Gurgaon\", \"contact_person\": \"contact_person\", \"phone_number\": \"9186676788\" },\n    \"name\": \"{{sample_warehouse}}\",\n    \"business_hours\": { \"TUE\": { \"start_time\": \"07:00\", \"close_time\": \"08:30\" } },\n    \"pick_up_hours\": { \"TUE\": { \"start_time\": \"13:00\", \"close_time\": \"16:00\" } },\n    \"pick_up_days\": [\"TUE\"],\n    \"business_days\": [\"TUE\"],\n    \"ret_address\": { \"pin\": \"721657\", \"address\": \"test\" }\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    },
+    {
+      "name": "Client Warehouse Updation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Delhivery-B2B-Token", "value": "{{delhivery_b2b_token}}" },
+          { "key": "X-Delhivery-B2B-Env", "value": "{{delhivery_b2b_env}}" },
+          { "key": "X-Delhivery-B2B-Base-Url", "value": "{{delhivery_b2b_base_url}}", "disabled": true }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"updateWarehouse\",\n  \"payload\": {\n    \"cl_warehouse_name\": \"{{sample_warehouse}}\",\n    \"update_dict\": {\n      \"city\": \"Faridabad\",\n      \"state\": \"Maharashtra\",\n      \"country\": \"Bharat\",\n      \"address_details\": { \"address\": \"testing123\", \"contact_person\": \"Shashi\", \"phone_number\": \"9988000000\", \"email\": \"test@gmail.com\", \"company\": \"companyname\" }\n    }\n  }\n}" },
+        "url": "{{base_url}}/api/delhivery/b2b"
+      }
+    }
+  ]
+}
