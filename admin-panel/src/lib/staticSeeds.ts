@@ -11,6 +11,7 @@ export const STATIC_ADMIN_ACCOUNT_KEY = "shipsy-static-admin-account";
 const CLIENT_ACCOUNTS_KEY = "shipsy-client-accounts";
 const CLIENT_USER_KEY = "shipsy-client-user";
 const CLIENT_COMPANY_PROFILE_KEY = "shipsy-client-company-profile";
+const CLIENT_KYC_KEY = "shipsy-client-kyc";
 
 type ClientAccount = {
   id?: string;
@@ -33,6 +34,10 @@ type ClientCompanyProfile = {
   city?: string | null;
   state?: string | null;
   plan?: string | null;
+};
+
+type ClientKyc = {
+  status?: UserListItem["kycStatus"];
 };
 
 function nowIso(): string {
@@ -85,9 +90,15 @@ function clientBusinessName(user: ClientAccount, profile: ClientCompanyProfile |
   return name ? `${name} Store` : user.email ?? user.phone ?? "New Seller";
 }
 
+function readClientKycStatus(existing?: UserListItem): UserListItem["kycStatus"] {
+  const kyc = readJson<ClientKyc | null>(CLIENT_KYC_KEY, null);
+  return kyc?.status ?? existing?.kycStatus ?? "not_submitted";
+}
+
 function toSeller(user: ClientAccount, existing: UserListItem | undefined, profile: ClientCompanyProfile | null): UserListItem | null {
   if (!user.id) return null;
   const updatedAt = nowIso();
+  const kycStatus = readClientKycStatus(existing);
   return {
     id: user.id,
     name: clientName(user),
@@ -109,7 +120,7 @@ function toSeller(user: ClientAccount, existing: UserListItem | undefined, profi
     isActive: existing?.isActive ?? true,
     onboardingComplete: user.onboardingComplete ?? existing?.onboardingComplete ?? false,
     isVerified: user.isVerified ?? existing?.isVerified ?? true,
-    kycStatus: user.onboardingComplete ? "approved" : existing?.kycStatus ?? "not_submitted",
+    kycStatus,
     plan: profile?.plan ?? existing?.plan ?? "basic",
     createdAt: existing?.createdAt ?? updatedAt,
     updatedAt,
@@ -211,7 +222,7 @@ export function assignBasicPlan(): UserListItem {
       isActive: true,
       onboardingComplete: true,
       isVerified: true,
-      kycStatus: "approved",
+      kycStatus: "not_submitted",
       plan: plan.slug,
       createdAt: currentById.get("seller-deoband-bazaar")?.createdAt ?? updatedAt,
       updatedAt,
@@ -237,7 +248,7 @@ export function assignBasicPlan(): UserListItem {
       isActive: true,
       onboardingComplete: true,
       isVerified: true,
-      kycStatus: "approved",
+      kycStatus: "not_submitted",
       plan: plan.slug,
       createdAt: currentById.get("shipsy-demo-seller")?.createdAt ?? updatedAt,
       updatedAt,

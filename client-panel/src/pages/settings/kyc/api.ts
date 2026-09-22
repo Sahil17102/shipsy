@@ -1,9 +1,12 @@
 import { api } from "@/lib/api";
+import { mirrorClientSellerToAdmin } from "@/lib/adminSellerMirror";
 import { isRecord, shouldUseStaticClientData } from "@/lib/staticMode";
+import type { User } from "@/contexts/AuthContext";
 import { getRequiredDocuments } from "./config";
 import type { DocumentField, DocumentKey, KycRecord, KycResponse, KycSubmitPayload } from "./types";
 
 const KYC_STORAGE_KEY = "shipsy-client-kyc";
+const USER_STORAGE_KEY = "shipsy-client-user";
 const DOCUMENT_KEYS: DocumentKey[] = [
   "selfie",
   "panCard",
@@ -65,8 +68,24 @@ function writeStaticKyc(kyc: KycRecord): KycResponse {
   const updated = { ...kyc, updatedAt: new Date().toISOString() };
   if (typeof window !== "undefined") {
     localStorage.setItem(KYC_STORAGE_KEY, JSON.stringify(updated));
+    mirrorCurrentSeller();
   }
   return { success: true, kyc: updated };
+}
+
+function readCurrentUser(): User | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const user = JSON.parse(localStorage.getItem(USER_STORAGE_KEY) || "{}") as User;
+    return user?.id ? user : null;
+  } catch {
+    return null;
+  }
+}
+
+function mirrorCurrentSeller(): void {
+  const user = readCurrentUser();
+  if (user) mirrorClientSellerToAdmin(user);
 }
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -119,7 +138,13 @@ export const kycApi = {
     if (!shouldUseStaticClientData()) {
       try {
         const { data } = await api.post("/kyc", payload);
-        if (isKycResponse(data)) return data;
+        if (isKycResponse(data)) {
+          if (typeof window !== "undefined") {
+            localStorage.setItem(KYC_STORAGE_KEY, JSON.stringify(data.kyc));
+            mirrorCurrentSeller();
+          }
+          return data;
+        }
       } catch {
         // Static panels should remain usable when the API is absent.
       }
@@ -152,7 +177,13 @@ export const kycApi = {
         const { data } = await api.post("/kyc/upload", formData, {
           headers: { "Content-Type": "multipart/form-data" },
         });
-        if (isKycResponse(data)) return data;
+        if (isKycResponse(data)) {
+          if (typeof window !== "undefined") {
+            localStorage.setItem(KYC_STORAGE_KEY, JSON.stringify(data.kyc));
+            mirrorCurrentSeller();
+          }
+          return data;
+        }
       } catch {
         // Use the local document state on static deploys and API failures.
       }

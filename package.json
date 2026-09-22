@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "node scripts/render-build.mjs",
-    "start": "wrangler dev --config dist/server/wrangler.json",
+    "start": "vinext start",
     "lint": "oxlint",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate"

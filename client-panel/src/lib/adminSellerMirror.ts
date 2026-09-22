@@ -2,6 +2,7 @@ import type { User } from "@/contexts/AuthContext";
 
 export const ADMIN_STATIC_USERS_KEY = "shipsy-static-users";
 export const CLIENT_COMPANY_PROFILE_KEY = "shipsy-client-company-profile";
+export const CLIENT_KYC_KEY = "shipsy-client-kyc";
 
 type ClientCompanyProfile = {
   businessName?: string | null;
@@ -42,6 +43,10 @@ type AdminSeller = {
   updatedAt: string;
 };
 
+type ClientKyc = {
+  status?: "not_submitted" | "pending" | "approved" | "rejected";
+};
+
 function readJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
@@ -68,10 +73,16 @@ function buildBusinessName(user: User, profile?: ClientCompanyProfile | null): s
   return name ? `${name} Store` : user.email ?? user.phone ?? "New Seller";
 }
 
+function readKycStatus(): AdminSeller["kycStatus"] {
+  const kyc = readJson<ClientKyc | null>(CLIENT_KYC_KEY, null);
+  return kyc?.status ?? "not_submitted";
+}
+
 export function mirrorClientSellerToAdmin(user: User, profile?: ClientCompanyProfile | null): void {
   if (typeof window === "undefined") return;
 
   const savedProfile = profile ?? readJson<ClientCompanyProfile | null>(CLIENT_COMPANY_PROFILE_KEY, null);
+  const kycStatus = readKycStatus();
   const sellers = readJson<AdminSeller[]>(ADMIN_STATIC_USERS_KEY, []);
   const current = sellers.find((seller) => seller.id === user.id);
   const now = new Date().toISOString();
@@ -97,7 +108,7 @@ export function mirrorClientSellerToAdmin(user: User, profile?: ClientCompanyPro
     isActive: true,
     onboardingComplete: user.onboardingComplete,
     isVerified: user.isVerified,
-    kycStatus: user.onboardingComplete ? "approved" : "not_submitted",
+    kycStatus,
     plan: savedProfile?.plan ?? current?.plan ?? "basic",
     createdAt: current?.createdAt ?? now,
     updatedAt: now,
