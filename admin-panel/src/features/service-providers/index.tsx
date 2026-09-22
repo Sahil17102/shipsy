@@ -6,6 +6,7 @@ import {
   XCircle,
   Plus,
   Info,
+  KeyRound,
 } from "lucide-react";
 import ServiceProviderBadge from "@/components/common/ServiceProviderBadge";
 import PageHeader from "@/components/common/PageHeader";
@@ -17,6 +18,7 @@ import {
 import type { ProviderListItem } from "./types";
 import { resolveLogoUrl } from "./config";
 import AddProviderModal from "./components/AddProviderModal";
+import ProviderCredentialsExpanded from "./components/ProviderCredentialsExpanded";
 
 const DEV_MODE_KEY = "devMode";
 
@@ -62,6 +64,7 @@ function ProviderLogo({ name, logoUrl }: { name: string; logoUrl?: string }) {
 export default function ServiceProvidersPage() {
   const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
+  const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
   const devMode = useDevMode();
   const { data, isLoading } = useServiceProviders(page);
   const updateProvider = useUpdateProvider();
@@ -151,12 +154,22 @@ export default function ServiceProvidersPage() {
       align: "right",
       width: 80,
       render: (_, record) => (
-        <Switch
-          size="small"
-          checked={record.status === "active"}
-          onChange={() => handleStatusToggle(record)}
-          loading={updateProvider.isPending}
-        />
+        <div className="flex items-center justify-end gap-3">
+          <Button
+            size="small"
+            type={expandedRowKeys.includes(record.id) ? "primary" : "default"}
+            icon={<KeyRound size={14} />}
+            onClick={() => setExpandedRowKeys((keys) => keys.includes(record.id) ? keys.filter((key) => key !== record.id) : [record.id])}
+          >
+            Credentials
+          </Button>
+          <Switch
+            size="small"
+            checked={record.status === "active"}
+            onChange={() => handleStatusToggle(record)}
+            loading={updateProvider.isPending}
+          />
+        </div>
       ),
     },
   ];
@@ -211,6 +224,12 @@ export default function ServiceProvidersPage() {
               }
             />
           ),
+        }}
+        expandable={{
+          expandedRowKeys,
+          onExpandedRowsChange: (keys) => setExpandedRowKeys(keys.map(String)),
+          expandedRowRender: (record) => <ProviderCredentialsExpanded provider={record} />,
+          expandRowByClick: false,
         }}
       />
 
