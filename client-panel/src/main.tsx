@@ -15,7 +15,13 @@ import "./index.css";
 
 const GOOGLE_CLIENT_ID = String(import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "").trim();
 
-injectThemeVars();
+// Theme injection is cosmetic; never let a malformed CSS variable prevent the
+// SPA from mounting on a deep-link refresh.
+try {
+  injectThemeVars();
+} catch (error) {
+  console.error("[Shipsy] Theme initialization failed", error);
+}
 
 const queryClient = new QueryClient();
 
@@ -41,6 +47,14 @@ function Providers({ children }: { children: ReactNode }) {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Shipsy client root element is missing");
+
+window.addEventListener("error", (event) => {
+  if (root.childElementCount === 0) {
+    root.innerHTML = `<div style="font-family:system-ui;padding:40px;text-align:center;color:#1f2937"><h1>Shipsy is loading</h1><p>Please refresh once. If this continues, contact support.</p></div>`;
+  }
+  console.error("[Shipsy] Unhandled client error", event.error || event.message);
+});
+
 createRoot(root).render(
   <StrictMode>
     <Providers><App /></Providers>
