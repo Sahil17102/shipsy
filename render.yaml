@@ -1,14 +1,19 @@
 services:
   - type: web
     name: shipsy-client
-    runtime: static
+    runtime: node
     rootDir: client-panel
     buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
+    startCommand: npm start
+    envVars:
+      - key: TEAMPAFEX_EMAIL
+        sync: false
+      - key: TEAMPAFEX_PASSWORD
+        sync: false
+      - key: LOGIXMITRA_PUBLIC_KEY
+        sync: false
+      - key: LOGIXMITRA_PRIVATE_KEY
+        sync: false
   - type: web
     name: shipsy-1admin
     runtime: static

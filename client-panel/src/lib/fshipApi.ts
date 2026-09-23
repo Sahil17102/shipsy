@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const DEFAULT_FSHIP_API_URL = "https://api.logixmitra.com/api";
+const DEFAULT_FSHIP_API_URL = "/api/providers/logixmitra";
 const FS_TOKEN_STORAGE_KEY = "shipsy-fship-signature";
 const FS_PUBLIC_KEY_STORAGE_KEY = "shipsy-fship-public-key";
 const FS_WAREHOUSE_STORAGE_KEY = "shipsy-fship-warehouses";
@@ -47,10 +47,11 @@ export function isFshipServiceProvider(value?: string | null): boolean {
 }
 
 export function isFshipApiConfigured(): boolean {
-  return Boolean(fshipSignature || readStored(FS_TOKEN_STORAGE_KEY));
+  return fshipApiBaseUrl.startsWith("/") || Boolean(fshipSignature || readStored(FS_TOKEN_STORAGE_KEY));
 }
 
 function getSignature(): string {
+  if (fshipApiBaseUrl.startsWith("/")) return "server-managed";
   const signature = fshipSignature || readStored(FS_TOKEN_STORAGE_KEY);
   if (!signature) {
     throw new Error("LogixMitra/FShip API key missing. Set VITE_FSHIP_SIGNATURE or VITE_LOGIXMITRA_PRIVATE_KEY.");
@@ -86,13 +87,14 @@ const fshipHttp = axios.create({
 async function fshipRequest<T>(method: "get" | "post", url: string, data?: unknown): Promise<T> {
   try {
     const publicKey = fshipPublicKey || readStored(FS_PUBLIC_KEY_STORAGE_KEY);
+    const serverManaged = fshipApiBaseUrl.startsWith("/");
     const res = await fshipHttp.request<T>({
       method,
       url,
       data,
       headers: {
-        signature: getSignature(),
-        ...(publicKey ? { publickey: publicKey, "public-key": publicKey } : {}),
+        ...(serverManaged ? {} : { signature: getSignature() }),
+        ...(!serverManaged && publicKey ? { publickey: publicKey, "public-key": publicKey } : {}),
       },
     });
     return res.data;
