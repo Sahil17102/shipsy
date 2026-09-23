@@ -248,7 +248,7 @@ function makeFallbackB2cRates(params: AvailableCouriersParams, shared: SharedCou
   const cod = codCharge(params.paymentType, params.orderAmount);
   const defaults: SharedCourier[] = [
     { id: "delhivery:b2c-surface", name: "Delhivery B2C Surface", serviceProvider: "delhivery", serviceProviderDisplayName: "Delhivery" },
-    { id: "logixmitra:surface", name: "LogixMitra Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "LogixMitra" },
+    { id: "logixmitra:surface", name: "FShip Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "FShip" },
   ];
   const options = (shared.length > 0 ? shared : defaults).map((item, index) => ({
     courierId: item.id,
@@ -300,9 +300,9 @@ function makeFallbackFshipB2bRates(params: B2bAvailableCouriersParams): B2bAvail
 
   return [{
     courierId: "logixmitra:b2b-surface",
-    name: "LogixMitra Surface",
+    name: "FShip Surface",
     serviceProvider: "logixmitra",
-    serviceProviderDisplayName: "LogixMitra",
+    serviceProviderDisplayName: "FShip",
     logo: null,
     zone: {
       originCode: params.origin,
@@ -341,7 +341,7 @@ function makeFallbackB2bRates(params: B2bAvailableCouriersParams, shared: Shared
 
   const defaults: SharedCourier[] = [
     { id: "delhivery:b2b-ltl", name: "Delhivery B2B LTL", serviceProvider: "delhivery", serviceProviderDisplayName: "Delhivery" },
-    { id: "logixmitra:b2b-surface", name: "LogixMitra B2B Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "LogixMitra" },
+    { id: "logixmitra:b2b-surface", name: "FShip B2B Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "FShip" },
   ];
   return (shared.length > 0 ? shared : defaults).map((option, index) => {
     const adjustedFreight = round(baseFreight * (1 + index * 0.04));

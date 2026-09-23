@@ -197,7 +197,7 @@ export default function ServiceProvidersPage() {
 
       <div className="flex items-center gap-2 text-sm text-muted bg-primary-bg border border-primary/10 rounded-lg px-3.5 py-2.5">
         <Info size={15} className="text-primary shrink-0" />
-        <span className="hidden sm:inline">LogixMitra/FShip and configured courier providers are available for live shipment flows.</span>
+        <span className="hidden sm:inline">FShip and configured courier providers are available for live shipment flows.</span>
         <span className="sm:hidden">Live courier integrations are available.</span>
       </div>
 

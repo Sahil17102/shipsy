@@ -93,7 +93,7 @@ function logixMitraCredentials(): ProviderCredentialsResponse {
   return {
     b2c: {
       fields,
-      description: "Used for live LogixMitra/FShip courier rates, shipment creation, pickup, cancellation, labels, and tracking.",
+      description: "Used for live FShip courier rates, shipment creation, pickup, cancellation, labels, and tracking.",
       values: {
         baseUrl: "https://capi.fship.in/api",
         publicKey: "",
@@ -102,7 +102,7 @@ function logixMitraCredentials(): ProviderCredentialsResponse {
     },
     b2b: {
       fields,
-      description: "B2B uses the same LogixMitra/FShip API credentials by default.",
+      description: "B2B uses the same FShip API credentials by default.",
       values: {
         baseUrl: "https://capi.fship.in/api",
         publicKey: "",
@@ -169,11 +169,11 @@ function defaultSeedProviders(): ProviderListItem[] {
     {
       id: "sp-logixmitra",
       serviceProvider: "logixmitra",
-      displayName: "LogixMitra",
+      displayName: "FShip",
       logoUrl: "",
       totalCouriers: 2,
       enabledCouriers: 2,
-      serviceProviderDisplayName: "LogixMitra",
+      serviceProviderDisplayName: "FShip",
       isEnabled: true,
       b2c: { configured: true },
       b2b: { configured: true, sameAsB2c: true },
