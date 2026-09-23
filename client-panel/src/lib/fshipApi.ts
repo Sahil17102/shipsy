@@ -2,7 +2,10 @@ import axios from "axios";
 
 // Keep the private FShip signature on the Shipsy server. The browser should
 // call the same-origin proxy, which forwards authenticated requests upstream.
-const DEFAULT_FSHIP_API_URL = "/api/providers/logixmitra";
+// The client panel is deployed as a static Render service, so relative
+// `/api/*` URLs are handled by the SPA fallback and never reach the courier
+// proxy. Keep the provider proxy on the dedicated API service by default.
+const DEFAULT_FSHIP_API_URL = "https://shipsy-courier-api.onrender.com/api/providers/logixmitra";
 const FS_TOKEN_STORAGE_KEY = "shipsy-fship-signature";
 const FS_PUBLIC_KEY_STORAGE_KEY = "shipsy-fship-public-key";
 const FS_WAREHOUSE_STORAGE_KEY = "shipsy-fship-warehouses";
