@@ -286,46 +286,6 @@ function makeFallbackB2cRates(params: AvailableCouriersParams, shared: SharedCou
   });
 }
 
-function makeFallbackFshipB2bRates(params: B2bAvailableCouriersParams): B2bAvailableCourier[] {
-  const packages = params.packages.map((pkg) => ({
-    deadWeight: pkg.weight,
-    volumetricWeight: volumetricKg(pkg.length, pkg.breadth, pkg.height),
-    billableWeight: Math.max(pkg.weight, volumetricKg(pkg.length, pkg.breadth, pkg.height)),
-  }));
-  const billableWeight = Math.max(1, round(packages.reduce((sum, pkg) => sum + pkg.billableWeight, 0), 3));
-  const baseFreight = round(Math.max(210, billableWeight * 17));
-  const cod = codCharge(params.paymentType, params.orderAmount);
-  const gst = round((baseFreight + cod) * 0.18);
-  const total = round(baseFreight + cod + gst);
-
-  return [{
-    courierId: "logixmitra:b2b-surface",
-    name: "FShip Surface",
-    serviceProvider: "logixmitra",
-    serviceProviderDisplayName: "FShip",
-    logo: null,
-    zone: {
-      originCode: params.origin,
-      originName: params.origin,
-      destinationCode: params.destination,
-      destinationName: params.destination,
-    },
-    billableWeight,
-    packages,
-    rate: {
-      baseFreight,
-      overheads: [
-        ...(cod > 0 ? [{ code: "COD", name: "COD Charges", type: "fixed", amount: cod }] : []),
-        { code: "GST", name: "GST", type: "percent", amount: gst },
-      ],
-      rtoRate: round(baseFreight * 0.8),
-      total,
-      billableWeight,
-      packages,
-    },
-  }];
-}
-
 function makeFallbackB2bRates(params: B2bAvailableCouriersParams, shared: SharedCourier[] = []): B2bAvailableCourier[] {
   const packages = params.packages.map((pkg) => ({
     deadWeight: pkg.weight,
@@ -788,11 +748,13 @@ export const ratesApi = {
       try {
         const couriers = await getFshipB2bRates(params);
         if (couriers.length > 0) return couriers;
-      } catch {
-        // Keep the form usable while showing the configured fallback.
+      } catch (error) {
+        throw error instanceof Error
+          ? error
+          : new Error("FShip live B2B rate request failed");
       }
-      return makeFallbackFshipB2bRates(params);
+      throw new Error("FShip returned no B2B rates for this pincode and shipment size");
     }
-    return makeFallbackB2bRates(params, sharedCouriers);
+    throw new Error("Admin B2B pricing is unavailable. Configure an active B2B rate before creating a shipment.");
   },
 };
