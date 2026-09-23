@@ -8,6 +8,7 @@ import {
 import {
   fshipApi,
   isFshipApiConfigured,
+  isFshipServiceProvider,
   shouldUseFshipApi,
   type FshipShipmentRate,
 } from "./fshipApi";
@@ -161,6 +162,22 @@ export interface RateCardPricing {
 export interface RateCardResponse {
   plan: string;
   pricing: RateCardPricing[];
+}
+
+// Temporary FShip B2B test override. Keep this scoped to FShip only so other
+// courier pricing remains unchanged while the low-balance booking flow is tested.
+const ZERO_FSHIP_B2B_EXTRAS_FOR_TEST = true;
+
+function applyFshipB2bTestPricing(couriers: B2bAvailableCourier[]): B2bAvailableCourier[] {
+  if (!ZERO_FSHIP_B2B_EXTRAS_FOR_TEST) return couriers;
+  return couriers.map((courier) => {
+    if (!isFshipServiceProvider(courier.serviceProvider)) return courier;
+    const baseFreight = courier.rate.baseFreight;
+    return {
+      ...courier,
+      rate: { ...courier.rate, overheads: [], total: baseFreight },
+    };
+  });
 }
 
 function toNumber(value: unknown, fallback = 0): number {
@@ -738,7 +755,7 @@ export const ratesApi = {
       );
       if (Array.isArray(data.data) && data.data.length > 0) {
         const fshipRates = isFshipApiConfigured() ? await getFshipB2bRates(params).catch(() => []) : [];
-        return [...data.data, ...fshipRates];
+        return applyFshipB2bTestPricing([...data.data, ...fshipRates]);
       }
     } catch {
       // Fall through to the explicitly marked fallback below if the API is unavailable.
@@ -747,7 +764,7 @@ export const ratesApi = {
     if (shouldUseFshipApi() && isFshipApiConfigured()) {
       try {
         const couriers = await getFshipB2bRates(params);
-        if (couriers.length > 0) return couriers;
+        if (couriers.length > 0) return applyFshipB2bTestPricing(couriers);
       } catch (error) {
         throw error instanceof Error
           ? error
