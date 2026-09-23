@@ -5,7 +5,7 @@ import axios from "axios";
 // The client panel is deployed as a static Render service, so relative
 // `/api/*` URLs are handled by the SPA fallback and never reach the courier
 // proxy. Keep the provider proxy on the dedicated API service by default.
-const DEFAULT_FSHIP_API_URL = "https://shipsy-courier-api.onrender.com/api/providers/logixmitra";
+const DEFAULT_FSHIP_API_URL = "https://shipsy-courier-api.onrender.com/api/providers/fship";
 const FS_TOKEN_STORAGE_KEY = "shipsy-fship-signature";
 const FS_PUBLIC_KEY_STORAGE_KEY = "shipsy-fship-public-key";
 const FS_WAREHOUSE_STORAGE_KEY = "shipsy-fship-warehouses";
@@ -15,7 +15,7 @@ const fshipApiBaseUrl = (
   import.meta.env.VITE_FSHIP_API_URL || DEFAULT_FSHIP_API_URL
 ).replace(/\/+$/, "");
 
-const fshipSignature = import.meta.env.VITE_FSHIP_SIGNATURE || import.meta.env.VITE_LOGIXMITRA_PRIVATE_KEY || "";
+const fshipSignature = import.meta.env.VITE_FSHIP_SIGNATURE || import.meta.env.VITE_FSHIP_PRIVATE_KEY || import.meta.env.VITE_LOGIXMITRA_PRIVATE_KEY || "";
 const fshipPublicKey = import.meta.env.VITE_FSHIP_PUBLIC_KEY || import.meta.env.VITE_LOGIXMITRA_PUBLIC_KEY || "";
 const fshipEnabled = import.meta.env.VITE_FSHIP_API_ENABLED ?? import.meta.env.VITE_LOGIXMITRA_API_ENABLED;
 const serverManagedFship = fshipApiBaseUrl.includes("shipsy-courier-api.onrender.com") || fshipApiBaseUrl.startsWith("/");
@@ -73,7 +73,7 @@ function normalizeApiError(err: unknown): Error {
       data?.message ||
       data?.error ||
       (err.response?.status === 401
-        ? "FShip authentication rejected the configured API signature. Update LOGIXMITRA_PRIVATE_KEY on the shipment API server."
+        ? "FShip authentication rejected the configured API signature. Update FSHIP_PRIVATE_KEY on the shipment API server."
         : err.message) ||
       "LogixMitra API request failed";
     const error = new Error(message);

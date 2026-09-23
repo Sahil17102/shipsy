@@ -83,18 +83,21 @@ app.all("/api/providers/teampafex/*path", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.all("/api/providers/logixmitra/*path", async (req, res, next) => {
+// FShip has its own credentials. LOGIXMITRA_* remains a temporary fallback
+// for existing deployments, but new deployments must use FSHIP_* so the two
+// provider configurations cannot be mixed accidentally.
+app.all(["/api/providers/fship/*path", "/api/providers/logixmitra/*path"], async (req, res, next) => {
   try {
     const pathPart = Array.isArray(req.params.path) ? req.params.path.join("/") : req.params.path;
     const target = new URL(`/api/${pathPart}`, "https://capi.fship.in");
     for (const [key, value] of Object.entries(req.query)) target.searchParams.set(key, String(value));
-    const publicKey = String(process.env.LOGIXMITRA_PUBLIC_KEY || "").trim();
+    const publicKey = String(process.env.FSHIP_PUBLIC_KEY || process.env.LOGIXMITRA_PUBLIC_KEY || "").trim();
     const response = await fetch(target, {
       method: req.method,
       headers: {
         Accept: "application/json",
         "Content-Type": req.get("content-type") || "application/json",
-        signature: requireEnv("LOGIXMITRA_PRIVATE_KEY"),
+        signature: String(process.env.FSHIP_PRIVATE_KEY || process.env.LOGIXMITRA_PRIVATE_KEY || "").trim() || requireEnv("FSHIP_PRIVATE_KEY"),
         ...(publicKey ? { publickey: publicKey, "public-key": publicKey } : {}),
       },
       body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body),
@@ -103,6 +106,7 @@ app.all("/api/providers/logixmitra/*path", async (req, res, next) => {
     res.status(response.status).type(contentType || "application/json").send(body);
   } catch (error) { next(error); }
 });
+
 
 app.post("/api/providers/delhivery/create-order", async (req, res, next) => {
   try {

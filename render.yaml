@@ -24,6 +24,10 @@ services:
         sync: false
       - key: LOGIXMITRA_PRIVATE_KEY
         sync: false
+      - key: FSHIP_PUBLIC_KEY
+        sync: false
+      - key: FSHIP_PRIVATE_KEY
+        sync: false
       - key: DELHIVERY_TOKEN
         sync: false
       - key: DELHIVERY_PICKUP_NAME
