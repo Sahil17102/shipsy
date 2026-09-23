@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const DEFAULT_FSHIP_API_URL = "https://capi.fship.in/api";
+// Keep the private FShip signature on the Shipsy server. The browser should
+// call the same-origin proxy, which forwards authenticated requests upstream.
+const DEFAULT_FSHIP_API_URL = "/api/providers/logixmitra";
 const FS_TOKEN_STORAGE_KEY = "shipsy-fship-signature";
 const FS_PUBLIC_KEY_STORAGE_KEY = "shipsy-fship-public-key";
 const FS_WAREHOUSE_STORAGE_KEY = "shipsy-fship-warehouses";
@@ -67,7 +69,9 @@ function normalizeApiError(err: unknown): Error {
       data?.response ||
       data?.message ||
       data?.error ||
-      err.message ||
+      (err.response?.status === 401
+        ? "FShip authentication rejected the configured API signature. Update LOGIXMITRA_PRIVATE_KEY on the shipment API server."
+        : err.message) ||
       "LogixMitra API request failed";
     const error = new Error(message);
     (error as any).status = err.response?.status;
