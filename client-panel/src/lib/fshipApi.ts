@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const DEFAULT_FSHIP_API_URL = "https://shipsy-courier-api.onrender.com/api/providers/logixmitra";
+const DEFAULT_FSHIP_API_URL = "https://capi.fship.in/api";
 const FS_TOKEN_STORAGE_KEY = "shipsy-fship-signature";
 const FS_PUBLIC_KEY_STORAGE_KEY = "shipsy-fship-public-key";
 const FS_WAREHOUSE_STORAGE_KEY = "shipsy-fship-warehouses";

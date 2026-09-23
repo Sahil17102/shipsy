@@ -86,7 +86,7 @@ app.all("/api/providers/teampafex/*path", async (req, res, next) => {
 app.all("/api/providers/logixmitra/*path", async (req, res, next) => {
   try {
     const pathPart = Array.isArray(req.params.path) ? req.params.path.join("/") : req.params.path;
-    const target = new URL(`/api/${pathPart}`, "https://api.logixmitra.com");
+    const target = new URL(`/api/${pathPart}`, "https://capi.fship.in");
     for (const [key, value] of Object.entries(req.query)) target.searchParams.set(key, String(value));
     const publicKey = String(process.env.LOGIXMITRA_PUBLIC_KEY || "").trim();
     const response = await fetch(target, {

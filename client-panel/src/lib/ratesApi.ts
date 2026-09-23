@@ -709,15 +709,22 @@ export const ratesApi = {
     }
 
     if (shouldUseFshipApi()) {
+      const fallbackRates = makeFallbackB2cRates(params, sharedCouriers);
       try {
         if (isFshipApiConfigured()) {
           const fshipRates = await getFshipRates(params);
-          if (fshipRates.length > 0) return fshipRates;
+          if (fshipRates.length > 0) {
+            const seen = new Set(fshipRates.map((item) => item.courierId));
+            return [
+              ...fshipRates,
+              ...fallbackRates.filter((item) => !seen.has(item.courierId)),
+            ];
+          }
         }
       } catch {
         // Keep order creation screen usable while credentials or CORS are being fixed.
       }
-      return makeFallbackB2cRates(params, sharedCouriers).filter((item) => item.serviceProvider === "logixmitra");
+      return fallbackRates;
     }
 
     try {

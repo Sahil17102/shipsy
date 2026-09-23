@@ -95,7 +95,7 @@ function logixMitraCredentials(): ProviderCredentialsResponse {
       fields,
       description: "Used for live LogixMitra/FShip courier rates, shipment creation, pickup, cancellation, labels, and tracking.",
       values: {
-        baseUrl: "https://api.logixmitra.com/api",
+        baseUrl: "https://capi.fship.in/api",
         publicKey: "",
         signature: "",
       },
@@ -104,7 +104,7 @@ function logixMitraCredentials(): ProviderCredentialsResponse {
       fields,
       description: "B2B uses the same LogixMitra/FShip API credentials by default.",
       values: {
-        baseUrl: "https://api.logixmitra.com/api",
+        baseUrl: "https://capi.fship.in/api",
         publicKey: "",
         signature: "",
       },
