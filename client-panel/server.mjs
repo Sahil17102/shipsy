@@ -104,6 +104,26 @@ app.all("/api/providers/logixmitra/*path", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post("/api/providers/delhivery/create-order", async (req, res, next) => {
+  try {
+    const form = new URLSearchParams({
+      format: "json",
+      data: JSON.stringify(req.body),
+    });
+    const response = await fetch("https://track.delhivery.com/api/cmu/create.json", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Token ${requireEnv("DELHIVERY_TOKEN")}`,
+      },
+      body: form,
+    });
+    const { body, contentType } = await readUpstream(response);
+    res.status(response.status).type(contentType || "application/json").send(body);
+  } catch (error) { next(error); }
+});
+
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use(express.static(path.join(root, "dist")));
 app.get("*path", (_req, res) => res.sendFile(path.join(root, "dist", "index.html")));

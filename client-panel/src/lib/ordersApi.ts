@@ -455,6 +455,53 @@ async function createFshipOrder(data: CreateOrderPayload): Promise<Order> {
   return updated;
 }
 
+async function createDelhiveryOrder(data: CreateOrderPayload): Promise<Order> {
+  const pickupName = import.meta.env.VITE_DELHIVERY_PICKUP_NAME || "BILAL";
+  const shipment = {
+    name: data.buyerName,
+    add: [data.address, data.address2].filter(Boolean).join(", "),
+    pin: data.pincode,
+    city: data.city,
+    state: data.state,
+    country: "India",
+    phone: data.buyerPhone,
+    order: data.orderId,
+    payment_mode: data.paymentType === "cod" ? "COD" : "Prepaid",
+    cod_amount: data.paymentType === "cod" ? data.codAmount : 0,
+    products_desc: data.products.map((product) => product.name).join(", "),
+    total_amount: data.orderAmount,
+    quantity: data.products.reduce((sum, product) => sum + product.quantity, 0),
+    shipment_width: data.breadth || 1,
+    shipment_height: data.height || 1,
+    shipment_length: data.length || 1,
+    weight: data.weight,
+    shipping_mode: "Surface",
+  };
+  const response = await axios.post<{
+    success?: boolean;
+    packages?: Array<{ waybill?: string; status?: string; remarks?: string }>;
+    rmks?: string;
+  }>("https://shipsy-courier-api.onrender.com/api/providers/delhivery/create-order", {
+    shipments: [shipment],
+    pickup_location: { name: pickupName },
+  }, { timeout: 60_000 });
+  const result = response.data;
+  const created = result.packages?.[0];
+  const awb = String(created?.waybill || "");
+  if (!result.success || !awb) {
+    throw new Error(created?.remarks || result.rmks || "Delhivery shipment creation failed");
+  }
+  return {
+    ...makeOrderFromPayload(data, data.orderId, awb),
+    id: data.orderId,
+    providerOrderId: data.orderId,
+    awb,
+    status: "booked",
+    serviceProvider: "delhivery",
+    courierName: data.courierName || "Delhivery B2C Surface",
+  };
+}
+
 function mapFshipTrackingEvents(providerOrderId: string, awb: string, data: FshipTrackingResponse): TrackingEvent[] {
   const scans = data.trackingdata ?? [];
   if (scans.length > 0) {
@@ -795,6 +842,10 @@ export const ordersApi = {
   create: async (data: CreateOrderPayload): Promise<Order> => {
     if (isFshipServiceProvider(data.serviceProvider) || data.courierId.toLowerCase().includes("logixmitra")) {
       return createFshipOrder(data);
+    }
+
+    if (data.serviceProvider?.toLowerCase() === "delhivery" || data.courierId.toLowerCase().includes("delhivery")) {
+      return createDelhiveryOrder(data);
     }
 
     if (shouldUseCourierApi()) {
