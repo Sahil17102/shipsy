@@ -185,7 +185,11 @@ function defaultSeedProviders(): ProviderListItem[] {
 
 function mergeSeedProviders(providers: ProviderListItem[]): ProviderListItem[] {
   const blocked = new Set(["teampafex", "shadowfax"]);
-  const filtered = providers.filter((provider) => !blocked.has(provider.serviceProvider.toLowerCase()));
+  const filtered = providers
+    .filter((provider) => !blocked.has(provider.serviceProvider.toLowerCase()))
+    .map((provider) => provider.serviceProvider.toLowerCase() === "logixmitra"
+      ? { ...provider, displayName: "FShip", serviceProviderDisplayName: "FShip" }
+      : provider);
   const seen = new Set(filtered.map((provider) => provider.serviceProvider.toLowerCase()));
   const missingSeeds = defaultSeedProviders().filter((provider) => !seen.has(provider.serviceProvider));
   return [...missingSeeds, ...filtered];
@@ -204,7 +208,7 @@ function isListProvidersResponse(data: unknown): data is ListProvidersResponse {
 function readStaticProviders(): ProviderListItem[] {
   const providers = readJson<ProviderListItem[]>(STATIC_SERVICE_PROVIDERS_KEY, []);
   const filtered = mergeSeedProviders(providers);
-  if (filtered.length !== providers.length) writeStaticProviders(filtered);
+  if (filtered.length !== providers.length || filtered.some((provider, index) => provider !== providers[index])) writeStaticProviders(filtered);
   return filtered;
 }
 
