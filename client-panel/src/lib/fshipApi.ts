@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const DEFAULT_FSHIP_API_URL = "/api/providers/logixmitra";
+const DEFAULT_FSHIP_API_URL = "https://shipsy-courier-api.onrender.com/api/providers/logixmitra";
 const FS_TOKEN_STORAGE_KEY = "shipsy-fship-signature";
 const FS_PUBLIC_KEY_STORAGE_KEY = "shipsy-fship-public-key";
 const FS_WAREHOUSE_STORAGE_KEY = "shipsy-fship-warehouses";
@@ -13,6 +13,7 @@ const fshipApiBaseUrl = (
 const fshipSignature = import.meta.env.VITE_FSHIP_SIGNATURE || import.meta.env.VITE_LOGIXMITRA_PRIVATE_KEY || "";
 const fshipPublicKey = import.meta.env.VITE_FSHIP_PUBLIC_KEY || import.meta.env.VITE_LOGIXMITRA_PUBLIC_KEY || "";
 const fshipEnabled = import.meta.env.VITE_FSHIP_API_ENABLED ?? import.meta.env.VITE_LOGIXMITRA_API_ENABLED;
+const serverManagedFship = fshipApiBaseUrl.includes("shipsy-courier-api.onrender.com") || fshipApiBaseUrl.startsWith("/");
 
 function readStored(key: string): string {
   if (typeof window === "undefined") return "";
@@ -47,11 +48,11 @@ export function isFshipServiceProvider(value?: string | null): boolean {
 }
 
 export function isFshipApiConfigured(): boolean {
-  return fshipApiBaseUrl.startsWith("/") || Boolean(fshipSignature || readStored(FS_TOKEN_STORAGE_KEY));
+  return serverManagedFship || Boolean(fshipSignature || readStored(FS_TOKEN_STORAGE_KEY));
 }
 
 function getSignature(): string {
-  if (fshipApiBaseUrl.startsWith("/")) return "server-managed";
+  if (serverManagedFship) return "server-managed";
   const signature = fshipSignature || readStored(FS_TOKEN_STORAGE_KEY);
   if (!signature) {
     throw new Error("LogixMitra/FShip API key missing. Set VITE_FSHIP_SIGNATURE or VITE_LOGIXMITRA_PRIVATE_KEY.");
@@ -87,7 +88,7 @@ const fshipHttp = axios.create({
 async function fshipRequest<T>(method: "get" | "post", url: string, data?: unknown): Promise<T> {
   try {
     const publicKey = fshipPublicKey || readStored(FS_PUBLIC_KEY_STORAGE_KEY);
-    const serverManaged = fshipApiBaseUrl.startsWith("/");
+    const serverManaged = serverManagedFship;
     const res = await fshipHttp.request<T>({
       method,
       url,

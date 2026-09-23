@@ -1,6 +1,6 @@
 import axios, { AxiosError } from "axios";
 
-const DEFAULT_COURIER_API_URL = "/api/providers/teampafex";
+const DEFAULT_COURIER_API_URL = "https://shipsy-courier-api.onrender.com/api/providers/teampafex";
 const TOKEN_STORAGE_KEY = "shipsy-courier-token";
 const PICKUP_STORAGE_KEY = "shipsy-courier-pickup-addresses";
 const ORDERS_STORAGE_KEY = "shipsy-courier-created-orders";
@@ -13,11 +13,12 @@ const courierApiEmail = import.meta.env.VITE_COURIER_EMAIL || "";
 const courierApiPassword = import.meta.env.VITE_COURIER_PASSWORD || "";
 const courierApiToken = import.meta.env.VITE_COURIER_API_TOKEN || "";
 const courierApiFlag = import.meta.env.VITE_COURIER_API_ENABLED;
+const serverManagedCourier = courierApiBaseUrl.includes("shipsy-courier-api.onrender.com") || courierApiBaseUrl.startsWith("/");
 
 let inMemoryToken: string | null = courierApiToken || null;
 
 export function isCourierApiConfigured(): boolean {
-  return courierApiBaseUrl.startsWith("/") || Boolean(courierApiToken || readStoredToken() || (courierApiEmail && courierApiPassword));
+  return serverManagedCourier || Boolean(courierApiToken || readStoredToken() || (courierApiEmail && courierApiPassword));
 }
 
 export function shouldUseCourierApi(): boolean {
@@ -128,7 +129,7 @@ export async function loginCourierApi(email: string, password: string): Promise<
 }
 
 async function ensureCourierToken(): Promise<string> {
-  if (courierApiBaseUrl.startsWith("/")) return "server-managed";
+  if (serverManagedCourier) return "server-managed";
   if (inMemoryToken) return inMemoryToken;
 
   const stored = readStoredToken();

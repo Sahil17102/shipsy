@@ -7,6 +7,19 @@ const port = Number(process.env.PORT || 10000);
 const root = path.dirname(fileURLToPath(import.meta.url));
 
 app.disable("x-powered-by");
+app.use((req, res, next) => {
+  const allowed = new Set([
+    "https://shipsy-client-wkxv.onrender.com",
+    "http://localhost:5173",
+  ]);
+  const origin = req.get("origin");
+  if (origin && allowed.has(origin)) res.set("Access-Control-Allow-Origin", origin);
+  res.set("Vary", "Origin");
+  res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
