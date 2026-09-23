@@ -91,14 +91,12 @@ app.all(["/api/providers/fship/*path", "/api/providers/logixmitra/*path"], async
     const pathPart = Array.isArray(req.params.path) ? req.params.path.join("/") : req.params.path;
     const target = new URL(`/api/${pathPart}`, "https://capi.fship.in");
     for (const [key, value] of Object.entries(req.query)) target.searchParams.set(key, String(value));
-    const publicKey = String(process.env.FSHIP_PUBLIC_KEY || process.env.LOGIXMITRA_PUBLIC_KEY || "").trim();
     const response = await fetch(target, {
       method: req.method,
       headers: {
         Accept: "application/json",
         "Content-Type": req.get("content-type") || "application/json",
         signature: String(process.env.FSHIP_PRIVATE_KEY || process.env.LOGIXMITRA_PRIVATE_KEY || "").trim() || requireEnv("FSHIP_PRIVATE_KEY"),
-        ...(publicKey ? { publickey: publicKey, "public-key": publicKey } : {}),
       },
       body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body),
     });
