@@ -767,18 +767,10 @@ export const ratesApi = {
       return makeFallbackB2bRates(params, sharedCouriers);
     }
 
-    if (shouldUseFshipApi()) {
-      try {
-        if (isFshipApiConfigured()) {
-          const couriers = await getFshipB2bRates(params);
-          if (couriers.length > 0) return couriers;
-        }
-      } catch {
-        // Keep B2B order flow visible while live API credentials are being fixed.
-      }
-      return makeFallbackFshipB2bRates(params);
-    }
-
+    // Admin pricing is the source of truth for the client panel. Fetch it
+    // first even when live FShip rates are enabled; otherwise a failed FShip
+    // request silently falls back to a static ₹17/kg estimate and ignores
+    // pincode/weight-specific rates configured in Admin.
     try {
       const { data } = await api.post<{ success: boolean; data: B2bAvailableCourier[] }>(
         "/rates/b2b/available",
@@ -788,9 +780,19 @@ export const ratesApi = {
         const fshipRates = isFshipApiConfigured() ? await getFshipB2bRates(params).catch(() => []) : [];
         return [...data.data, ...fshipRates];
       }
-      return makeFallbackB2bRates(params, sharedCouriers);
     } catch {
-      return makeFallbackB2bRates(params, sharedCouriers);
+      // Fall through to the explicitly marked fallback below if the API is unavailable.
     }
+
+    if (shouldUseFshipApi() && isFshipApiConfigured()) {
+      try {
+        const couriers = await getFshipB2bRates(params);
+        if (couriers.length > 0) return couriers;
+      } catch {
+        // Keep the form usable while showing the configured fallback.
+      }
+      return makeFallbackFshipB2bRates(params);
+    }
+    return makeFallbackB2bRates(params, sharedCouriers);
   },
 };
