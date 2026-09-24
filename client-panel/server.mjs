@@ -1,6 +1,8 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import PDFDocument from "pdfkit";
+import bwipjs from "bwip-js";
 
 const app = express();
 const port = Number(process.env.PORT || 10000);
@@ -157,35 +159,98 @@ app.post("/api/provider-orders", (req, res) => {
   return res.status(201).json({ order });
 });
 
-function pdfText(value) {
-  return String(value ?? "").replace(/[\\()]/g, "\\$&").replace(/[^\x20-\x7e]/g, "?");
-}
-
-function orderPdf(order, kind) {
+async function orderPdf(order, kind) {
   const address = order.deliveryAddress || {};
-  const lines = kind === "label"
-    ? ["SHIPSY  |  SHIPPING LABEL", `Order: ${order.orderId || order.id}`, `AWB: ${order.awb || "-"}`, `Courier: ${order.courierName || "Delhivery"}`, "", "SHIP TO", address.contactName, address.phone, address.addressLine1, `${address.city}, ${address.state} - ${address.pincode}`, "", `Payment: ${String(order.paymentType || "prepaid").toUpperCase()}`]
-    : ["SHIPSY  |  TAX INVOICE", `Invoice: ${order.orderId || order.id}`, `Order date: ${order.createdAt || new Date().toISOString()}`, `AWB: ${order.awb || "-"}`, "", "BILL TO", address.contactName, address.phone, address.addressLine1, `${address.city}, ${address.state} - ${address.pincode}`, "", `Shipment charge: INR ${Number(order.rate?.totalCharge || order.orderAmount || 0).toFixed(2)}`, `Payment mode: ${String(order.paymentType || "prepaid").toUpperCase()}`, "", "Thank you for shipping with ShipSy."];
-  const commands = ["BT", "/F1 18 Tf", "50 760 Td", `(${pdfText(lines[0])}) Tj`, "/F1 10 Tf"];
-  lines.slice(1).forEach((line) => commands.push("0 -24 Td", `(${pdfText(line)}) Tj`));
-  commands.push("ET");
-  const stream = commands.join("\n");
-  const objects = [`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>`, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`, `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];
-  let pdf = "%PDF-1.4\n"; const offsets = [0];
-  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf, "utf8")); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
-  const xref = Buffer.byteLength(pdf, "utf8"); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `).join("\n")}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-  return Buffer.from(pdf, "utf8");
+  const isLabel = kind === "label";
+  const doc = new PDFDocument({ size: isLabel ? [288, 432] : "A4", margin: isLabel ? 18 : 42, info: { Title: `${kind} - ${order.orderId || order.id}`, Author: "ShipSy" } });
+  const chunks = [];
+  doc.on("data", (chunk) => chunks.push(chunk));
+  const completed = new Promise((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
+  const blue = "#165DFF", ink = "#0F1F3D", muted = "#667085", line = "#D9E2F1", pale = "#EFF5FF";
+  const orderId = String(order.orderId || order.id || "-");
+  const awb = String(order.awb || "-");
+  const payment = String(order.paymentType || "prepaid").toUpperCase();
+  const amount = Number(order.orderAmount || 0);
+  const date = new Date(order.createdAt || Date.now()).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const destination = [address.addressLine1, address.addressLine2, address.city, address.state, address.pincode].filter(Boolean).join(", ");
+
+  if (isLabel) {
+    doc.roundedRect(10, 10, 268, 412, 7).lineWidth(1.2).stroke(ink);
+    doc.rect(10, 10, 268, 52).fill(ink);
+    doc.fillColor("white").font("Helvetica-Bold").fontSize(22).text("ShipSy", 24, 23);
+    doc.font("Helvetica").fontSize(7).text("SHIPPING, SIMPLIFIED.", 24, 47);
+    doc.font("Helvetica-Bold").fontSize(9).text("SHIPPING LABEL", 174, 27, { width: 88, align: "right" });
+    doc.fillColor(ink).fontSize(7).text("COURIER PARTNER", 22, 75);
+    doc.fontSize(13).text(order.courierName || "Delhivery", 22, 87);
+    doc.roundedRect(198, 72, 62, 28, 5).fill(pale);
+    doc.fillColor(blue).fontSize(11).text(payment, 202, 81, { width: 54, align: "center" });
+    doc.moveTo(18, 112).lineTo(270, 112).strokeColor(line).stroke();
+    const barcode = await bwipjs.toBuffer({ bcid: "code128", text: awb, scale: 2, height: 10, includetext: true, textxalign: "center" });
+    doc.image(barcode, 38, 122, { fit: [212, 68], align: "center" });
+    doc.fillColor(muted).font("Helvetica").fontSize(7).text("ORDER ID", 22, 202);
+    doc.fillColor(ink).font("Helvetica-Bold").fontSize(12).text(orderId, 22, 214);
+    doc.fillColor(muted).font("Helvetica").fontSize(7).text("ORDER DATE", 182, 202, { width: 78, align: "right" });
+    doc.fillColor(ink).font("Helvetica-Bold").fontSize(9).text(date, 182, 215, { width: 78, align: "right" });
+    doc.rect(18, 242, 252, 116).fillAndStroke("#F8FAFD", line);
+    doc.fillColor(blue).font("Helvetica-Bold").fontSize(8).text("DELIVER TO", 28, 255);
+    doc.fillColor(ink).fontSize(15).text(address.contactName || "Customer", 28, 270, { width: 220 });
+    doc.font("Helvetica").fontSize(9).text(destination || "Address unavailable", 28, 292, { width: 220, lineGap: 3 });
+    doc.font("Helvetica-Bold").fontSize(9).text(address.phone ? `Phone: ${address.phone}` : "", 28, 334);
+    doc.moveTo(18, 372).lineTo(270, 372).strokeColor(line).stroke();
+    doc.fillColor(muted).font("Helvetica").fontSize(7).text("PACKAGE", 22, 383);
+    doc.fillColor(ink).font("Helvetica-Bold").fontSize(9).text(`${order.weight || order.chargeableWeight || "-"} g`, 22, 395);
+    doc.fillColor(muted).font("Helvetica").fontSize(7).text("AMOUNT", 198, 383, { width: 62, align: "right" });
+    doc.fillColor(ink).font("Helvetica-Bold").fontSize(9).text(`INR ${amount.toFixed(2)}`, 188, 395, { width: 72, align: "right" });
+  } else {
+    const pageWidth = 595.28;
+    doc.rect(0, 0, pageWidth, 96).fill(ink);
+    doc.fillColor("white").font("Helvetica-Bold").fontSize(28).text("ShipSy", 42, 28);
+    doc.font("Helvetica").fontSize(8).text("SHIPPING, SIMPLIFIED.", 43, 61);
+    doc.font("Helvetica-Bold").fontSize(19).text("INVOICE", 380, 32, { width: 170, align: "right" });
+    doc.font("Helvetica").fontSize(8).text(`INVOICE NO. ${orderId}`, 350, 60, { width: 200, align: "right" });
+    doc.fillColor(muted).font("Helvetica-Bold").fontSize(8).text("BILLED TO", 42, 126);
+    doc.fillColor(ink).fontSize(13).text(address.contactName || "Customer", 42, 142);
+    doc.font("Helvetica").fontSize(9).text(destination || "Address unavailable", 42, 162, { width: 245, lineGap: 3 });
+    if (address.phone) doc.text(`Phone: ${address.phone}`, 42, 204);
+    doc.roundedRect(346, 122, 207, 100, 7).fill(pale);
+    doc.fillColor(muted).font("Helvetica").fontSize(8).text("ORDER DATE", 363, 140).text("AWB NUMBER", 363, 168).text("PAYMENT", 363, 196);
+    doc.fillColor(ink).font("Helvetica-Bold").text(date, 442, 140).text(awb, 442, 168).text(payment, 442, 196);
+    doc.rect(42, 250, 511, 32).fill(blue);
+    doc.fillColor("white").font("Helvetica-Bold").fontSize(8).text("DESCRIPTION", 54, 262).text("QTY", 365, 262, { width: 40, align: "center" }).text("RATE", 420, 262, { width: 54, align: "right" }).text("AMOUNT", 483, 262, { width: 58, align: "right" });
+    const products = order.products?.length ? order.products : [{ name: "Shipment item", quantity: 1, unitPrice: amount }];
+    let y = 298;
+    products.slice(0, 8).forEach((product) => {
+      const qty = Number(product.quantity || 1), rate = Number(product.unitPrice || 0);
+      doc.fillColor(ink).font("Helvetica-Bold").fontSize(9).text(product.name || "Item", 54, y, { width: 285 });
+      doc.font("Helvetica").text(String(qty), 365, y, { width: 40, align: "center" }).text(`INR ${rate.toFixed(2)}`, 420, y, { width: 54, align: "right" }).text(`INR ${(qty * rate).toFixed(2)}`, 483, y, { width: 58, align: "right" });
+      doc.moveTo(42, y + 24).lineTo(553, y + 24).strokeColor(line).stroke(); y += 42;
+    });
+    const subtotal = products.reduce((sum, product) => sum + Number(product.quantity || 1) * Number(product.unitPrice || 0), 0) || amount;
+    const shipping = Number(order.rate?.totalCharge || 0);
+    const total = subtotal + shipping;
+    const totalY = Math.max(540, y + 20);
+    doc.fillColor(muted).font("Helvetica").fontSize(9).text("Subtotal", 382, totalY, { width: 82 }).text("Shipping", 382, totalY + 25, { width: 82 });
+    doc.fillColor(ink).font("Helvetica-Bold").text(`INR ${subtotal.toFixed(2)}`, 468, totalY, { width: 73, align: "right" }).text(`INR ${shipping.toFixed(2)}`, 468, totalY + 25, { width: 73, align: "right" });
+    doc.roundedRect(365, totalY + 51, 188, 43, 6).fill(ink);
+    doc.fillColor("white").fontSize(10).text("TOTAL", 382, totalY + 67).fontSize(13).text(`INR ${total.toFixed(2)}`, 450, totalY + 64, { width: 86, align: "right" });
+    doc.fillColor(muted).font("Helvetica").fontSize(8).text("This is a computer-generated invoice and does not require a signature.", 42, 770, { width: 510, align: "center" });
+    doc.fillColor(blue).font("Helvetica-Bold").text("support@shipsy.in  |  shipsy.in", 42, 792, { width: 510, align: "center" });
+  }
+  doc.end();
+  return completed;
 }
 
 function findProviderOrder(id) {
   return [...providerOrders.values()].find((item) => [item.id, item.orderId, item.providerOrderId, item.awb].map(String).includes(String(id)));
 }
 
-app.get("/api/provider-orders/:id/:document", (req, res) => {
+app.get("/api/provider-orders/:id/:document", async (req, res, next) => {
+  try {
   const order = findProviderOrder(req.params.id);
   if (!order || !["label", "invoice"].includes(req.params.document)) return res.status(404).json({ message: "Provider order document not found" });
   const kind = req.params.document;
-  res.type("application/pdf").set("Content-Disposition", `attachment; filename=${kind}-${order.awb || order.orderId}.pdf`).send(orderPdf(order, kind));
+  res.type("application/pdf").set("Content-Disposition", `attachment; filename=${kind}-${order.awb || order.orderId}.pdf`).send(await orderPdf(order, kind));
+  } catch (error) { next(error); }
 });
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
