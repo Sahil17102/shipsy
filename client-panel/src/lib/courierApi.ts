@@ -24,7 +24,10 @@ export function isCourierApiConfigured(): boolean {
 export function shouldUseCourierApi(): boolean {
   if (courierApiFlag === "true") return true;
   if (courierApiFlag === "false") return false;
-  return false;
+  // The production proxy is the default courier backend.  Falling back to
+  // the main API when no explicit flag is set makes real provider shipments
+  // disappear from the client order list.
+  return serverManagedCourier;
 }
 
 function readStoredToken(): string | null {
