@@ -10,6 +10,7 @@ import {
   type CourierPackagePayload,
   type CourierPickupAddressPayload,
   type CourierRawOrder,
+  type CourierOrdersResponse,
 } from "./courierApi";
 import {
   fshipApi,
@@ -800,7 +801,16 @@ async function getProviderOrders(params?: OrderListParams): Promise<OrderListRes
   let orders: Order[] = [];
   try {
     const response = await courierApi.getOrders();
-    orders = (response.orders ?? []).map(mapProviderOrder);
+    // Teampafex has returned both `{ orders: [] }` and `{ data: { orders: [] } }`
+    // over time.  Accept both shapes (and a bare array) so a successful
+    // provider response never gets mistaken for an empty order list.
+    const rawResponse = response as CourierOrdersResponse & {
+      data?: { orders?: CourierRawOrder[] } | CourierRawOrder[];
+    };
+    const providerOrders = Array.isArray(rawResponse)
+      ? rawResponse
+      : rawResponse.orders ?? (Array.isArray(rawResponse.data) ? rawResponse.data : rawResponse.data?.orders) ?? [];
+    orders = providerOrders.map(mapProviderOrder);
   } catch {
     orders = [];
   }
