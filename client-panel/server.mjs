@@ -24,7 +24,9 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 function requireEnv(name) {
-  const value = String(process.env[name] || "").trim();
+  // Render/dashboard values are sometimes pasted with surrounding quotes.
+  // Those quotes become part of the header and make FShip reject the key.
+  const value = String(process.env[name] || "").trim().replace(/^("|')(.*)\1$/, "$2").trim();
   if (!value) {
     const error = new Error(`${name} is not configured on the Shipsy client service`);
     error.status = 503;
@@ -83,9 +85,9 @@ app.all("/api/providers/teampafex/*path", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// FShip has its own credentials. LOGIXMITRA_* remains a temporary fallback
-// for existing deployments, but new deployments must use FSHIP_* so the two
-// provider configurations cannot be mixed accidentally.
+// FShip has its own credentials. Do not fall back to the legacy LogixMitra
+// key: an old value there causes an otherwise valid FShip integration to be
+// rejected with 401/"configured API signature" errors.
 app.all(["/api/providers/fship/*path", "/api/providers/logixmitra/*path"], async (req, res, next) => {
   try {
     const pathPart = Array.isArray(req.params.path) ? req.params.path.join("/") : req.params.path;
@@ -96,7 +98,7 @@ app.all(["/api/providers/fship/*path", "/api/providers/logixmitra/*path"], async
       headers: {
         Accept: "application/json",
         "Content-Type": req.get("content-type") || "application/json",
-        signature: String(process.env.FSHIP_PRIVATE_KEY || process.env.LOGIXMITRA_PRIVATE_KEY || "").trim() || requireEnv("FSHIP_PRIVATE_KEY"),
+        signature: requireEnv("FSHIP_PRIVATE_KEY"),
       },
       body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body),
     });
