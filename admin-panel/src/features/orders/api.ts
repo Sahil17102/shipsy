@@ -37,6 +37,20 @@ function numberValue(value: unknown): number {
 }
 
 function mapProviderOrder(raw: ProviderOrder): OrderListItem {
+  // The shared mirror already stores ShipSy-normalized orders. Preserve those
+  // fields instead of treating them like a raw courier response.
+  if (raw.deliveryAddress && raw.orderId && raw.rate) {
+    return {
+      ...(raw as unknown as OrderListItem),
+      id: String(raw.id),
+      orderId: String(raw.orderId),
+      awb: String(raw.awb ?? ""),
+      status: providerStatus(raw.status),
+      courierName: String(raw.courierName ?? "Delhivery"),
+      serviceProvider: String(raw.serviceProvider ?? "delhivery"),
+      createdAt: String(raw.createdAt ?? new Date().toISOString()),
+    };
+  }
   const id = String(raw.id ?? raw.order_id ?? raw.awb_no ?? "");
   const amount = numberValue(raw.payment_amount ?? raw.order_amount ?? raw.total_order_value);
   const charge = numberValue(raw.shipping_amount ?? raw.shipping_charge ?? raw.total_charges);

@@ -845,6 +845,9 @@ async function getProviderOrders(params?: OrderListParams): Promise<OrderListRes
   storedOrders.forEach((order) => {
     if (!seen.has(order.id)) orders.unshift(order);
   });
+  // Rehydrate the shared mirror after a courier-service restart so the admin
+  // panel sees the same real shipments that remain in the seller browser.
+  await Promise.all(storedOrders.map((order) => mirrorProviderOrder(order)));
 
   if (params?.status) orders = orders.filter((order) => order.status === params.status);
   if (params?.orderType) orders = orders.filter((order) => order.orderType === params.orderType);
