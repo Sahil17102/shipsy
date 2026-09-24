@@ -492,7 +492,7 @@ async function createDelhiveryOrder(data: CreateOrderPayload): Promise<Order> {
   if (!result.success || !awb) {
     throw new Error(created?.remarks || result.rmks || "Delhivery shipment creation failed");
   }
-  return {
+  const order: Order & { providerOrderId: string } = {
     ...makeOrderFromPayload(data, data.orderId, awb),
     id: data.orderId,
     providerOrderId: data.orderId,
@@ -501,6 +501,13 @@ async function createDelhiveryOrder(data: CreateOrderPayload): Promise<Order> {
     serviceProvider: "delhivery",
     courierName: data.courierName || "Delhivery B2C Surface",
   };
+  // Keep provider-created shipments in the same local fallback store used by
+  // the provider order list.  Delhivery's create endpoint returns the AWB but
+  // does not expose a seller order-list endpoint, so without this write the
+  // newly created shipment disappears from the client Orders screen.
+  const existing = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
+  courierApi.writeStoredOrders([order, ...existing.filter((item) => item.id !== order.id)]);
+  return order;
 }
 
 function mapFshipTrackingEvents(providerOrderId: string, awb: string, data: FshipTrackingResponse): TrackingEvent[] {
