@@ -933,7 +933,22 @@ export const ordersApi = {
     }
 
     const { data } = await api.get("/orders", { params });
-    return data as OrderListResponse;
+    const result = data as OrderListResponse;
+    // Even when the main API feature flag is disabled, provider-created
+    // shipments must remain visible in the seller's order list.
+    try {
+      const mirror = await axios.get<{ orders?: Order[] }>(PROVIDER_ORDER_MIRROR_URL, { timeout: 15_000 });
+      const mirrored = mirror.data?.orders ?? [];
+      const existing = new Set(result.orders.map((order) => order.id));
+      const merged = [...result.orders, ...mirrored.filter((order) => !existing.has(order.id))];
+      return {
+        ...result,
+        orders: merged,
+        pagination: { ...result.pagination, total: merged.length, totalPages: Math.max(1, Math.ceil(merged.length / (params?.limit ?? 20))) },
+      };
+    } catch {
+      return result;
+    }
   },
 
   getById: async (id: string): Promise<Order> => {
