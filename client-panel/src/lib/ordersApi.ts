@@ -1062,9 +1062,16 @@ export const ordersApi = {
         return { ordersProcessed: updated.length, errors: [] };
       } catch (error) {
         const data = axios.isAxiosError(error) ? error.response?.data : undefined;
+        const firstProviderError = data && typeof data === "object"
+          ? Object.values(data as Record<string, unknown>).find((value) => typeof value === "string")
+          : undefined;
         const message = typeof data === "string"
           ? data
-          : String(data?.error || data?.message || data?.detail || (error instanceof Error ? error.message : "Delhivery pickup request failed"));
+          : String((data as { error?: string; message?: string; detail?: string } | undefined)?.error
+            || (data as { message?: string } | undefined)?.message
+            || (data as { detail?: string } | undefined)?.detail
+            || firstProviderError
+            || (error instanceof Error ? error.message : "Delhivery pickup request failed"));
         throw new Error(message);
       }
     }

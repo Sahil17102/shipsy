@@ -162,11 +162,15 @@ app.post("/api/providers/delhivery/create-order", async (req, res, next) => {
 
 app.post("/api/providers/delhivery/pickup-request", async (req, res, next) => {
   try {
-    const now = new Date();
+    const indiaNow = new Date(Date.now() + 330 * 60 * 1000);
+    const afterSameDayCutoff = indiaNow.getUTCHours() >= 15;
+    if (afterSameDayCutoff) indiaNow.setUTCDate(indiaNow.getUTCDate() + 1);
+    const defaultHour = afterSameDayCutoff ? 14 : Math.max(10, indiaNow.getUTCHours() + 2);
+    const datePart = `${indiaNow.getUTCFullYear()}-${String(indiaNow.getUTCMonth() + 1).padStart(2, "0")}-${String(indiaNow.getUTCDate()).padStart(2, "0")}`;
     // Delhivery expects local pickup date/time and the exact registered
-    // warehouse name. Default to the configured production warehouse.
-    const pickupDate = String(req.body?.pickup_date || now.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }));
-    const pickupTime = String(req.body?.pickup_time || "18:00:00");
+    // warehouse name. Never send a past slot: after 3 PM schedule next day.
+    const pickupDate = String(req.body?.pickup_date || datePart);
+    const pickupTime = String(req.body?.pickup_time || `${String(defaultHour).padStart(2, "0")}:00:00`);
     const pickupLocation = String(req.body?.pickup_location || process.env.DELHIVERY_PICKUP_NAME || "BILAL");
     const expectedPackageCount = Math.max(1, Number(req.body?.expected_package_count || 1));
     const response = await fetch("https://track.delhivery.com/fm/request/new/", {
