@@ -35,6 +35,10 @@ function requireEnv(name) {
   return value;
 }
 
+function getFshipClientKey() {
+  return requireEnv("FSHIP_CLIENT_KEY");
+}
+
 async function readUpstream(response) {
   const contentType = response.headers.get("content-type") || "";
   const body = contentType.includes("application/json")
@@ -85,24 +89,34 @@ app.all("/api/providers/teampafex/*path", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// FShip has its own credentials. Do not fall back to the legacy LogixMitra
-// key: an old value there causes an otherwise valid FShip integration to be
-// rejected with 401/"configured API signature" errors.
 app.all(["/api/providers/fship/*path", "/api/providers/logixmitra/*path"], async (req, res, next) => {
   try {
     const pathPart = Array.isArray(req.params.path) ? req.params.path.join("/") : req.params.path;
     const target = new URL(`/api/${pathPart}`, "https://capi.fship.in");
     for (const [key, value] of Object.entries(req.query)) target.searchParams.set(key, String(value));
+    const signature = getFshipClientKey();
     const response = await fetch(target, {
       method: req.method,
       headers: {
         Accept: "application/json",
         "Content-Type": req.get("content-type") || "application/json",
-        signature: requireEnv("FSHIP_PRIVATE_KEY"),
+        signature,
       },
       body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body),
     });
     const { body, contentType } = await readUpstream(response);
+    console.info("FShip proxy request", {
+      credentialSource: "env:FSHIP_CLIENT_KEY",
+      signaturePresent: Boolean(signature),
+      baseUrl: "https://capi.fship.in",
+      endpoint: target.pathname,
+      method: req.method,
+      status: response.status,
+      response: typeof body === "string" ? body.slice(0, 200) : body?.message || body?.response || response.statusText,
+    });
+    if (!response.ok && (!body || body === "")) {
+      return res.status(response.status).json({ message: `FShip API returned ${response.status} ${response.statusText}`.trim() });
+    }
     res.status(response.status).type(contentType || "application/json").send(body);
   } catch (error) { next(error); }
 });

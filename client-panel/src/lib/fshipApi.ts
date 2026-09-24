@@ -7,7 +7,6 @@ import axios from "axios";
 // proxy. Keep the provider proxy on the dedicated API service by default.
 const DEFAULT_FSHIP_API_URL = "https://shipsy-courier-api.onrender.com/api/providers/fship";
 const FS_TOKEN_STORAGE_KEY = "shipsy-fship-signature";
-const FS_PUBLIC_KEY_STORAGE_KEY = "shipsy-fship-public-key";
 const FS_WAREHOUSE_STORAGE_KEY = "shipsy-fship-warehouses";
 const FS_ORDERS_STORAGE_KEY = "shipsy-fship-created-orders";
 
@@ -15,8 +14,7 @@ const fshipApiBaseUrl = (
   import.meta.env.VITE_FSHIP_API_URL || DEFAULT_FSHIP_API_URL
 ).replace(/\/+$/, "");
 
-const fshipSignature = import.meta.env.VITE_FSHIP_SIGNATURE || import.meta.env.VITE_FSHIP_PRIVATE_KEY || import.meta.env.VITE_LOGIXMITRA_PRIVATE_KEY || "";
-const fshipPublicKey = import.meta.env.VITE_FSHIP_PUBLIC_KEY || import.meta.env.VITE_LOGIXMITRA_PUBLIC_KEY || "";
+const fshipSignature = import.meta.env.VITE_FSHIP_CLIENT_KEY || import.meta.env.VITE_FSHIP_SIGNATURE || "";
 const fshipEnabled = import.meta.env.VITE_FSHIP_API_ENABLED ?? import.meta.env.VITE_LOGIXMITRA_API_ENABLED;
 const serverManagedFship = fshipApiBaseUrl.includes("shipsy-courier-api.onrender.com") || fshipApiBaseUrl.startsWith("/");
 
@@ -60,7 +58,7 @@ function getSignature(): string {
   if (serverManagedFship) return "server-managed";
   const signature = fshipSignature || readStored(FS_TOKEN_STORAGE_KEY);
   if (!signature) {
-    throw new Error("LogixMitra/FShip API key missing. Set VITE_FSHIP_SIGNATURE or VITE_LOGIXMITRA_PRIVATE_KEY.");
+    throw new Error("FShip Client Key missing. Set FSHIP_CLIENT_KEY on the shipment API server.");
   }
   return signature;
 }
@@ -72,10 +70,8 @@ function normalizeApiError(err: unknown): Error {
       data?.response ||
       data?.message ||
       data?.error ||
-      (err.response?.status === 401
-        ? "FShip authentication rejected the configured API signature. Update FSHIP_PRIVATE_KEY on the shipment API server."
-        : err.message) ||
-      "LogixMitra API request failed";
+      (err.response?.status ? `FShip API returned ${err.response.status}${err.response.statusText ? ` ${err.response.statusText}` : ""}` : err.message) ||
+      "FShip API request failed";
     const error = new Error(message);
     (error as any).status = err.response?.status;
     return error;
@@ -94,7 +90,6 @@ const fshipHttp = axios.create({
 
 async function fshipRequest<T>(method: "get" | "post", url: string, data?: unknown): Promise<T> {
   try {
-    const publicKey = fshipPublicKey || readStored(FS_PUBLIC_KEY_STORAGE_KEY);
     const serverManaged = serverManagedFship;
     const res = await fshipHttp.request<T>({
       method,
@@ -102,7 +97,6 @@ async function fshipRequest<T>(method: "get" | "post", url: string, data?: unkno
       data,
       headers: {
         ...(serverManaged ? {} : { signature: getSignature() }),
-        ...(!serverManaged && publicKey ? { publickey: publicKey, "public-key": publicKey } : {}),
       },
     });
     return res.data;
