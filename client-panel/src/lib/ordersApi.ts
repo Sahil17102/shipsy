@@ -1036,6 +1036,39 @@ export const ordersApi = {
       return { ordersProcessed: fshipOrders.length, errors: [] };
     }
 
+    const selectedOrders = (await Promise.all(orderIds.map((id) => ordersApi.getById(id).catch(() => null))))
+      .filter((order): order is Order => Boolean(order));
+    const delhiveryOrders = selectedOrders.filter((order) => order.serviceProvider?.toLowerCase() === "delhivery");
+    if (delhiveryOrders.length === orderIds.length && delhiveryOrders.length > 0) {
+      try {
+        await axios.post(
+          "https://shipsy-courier-api.onrender.com/api/providers/delhivery/pickup-request",
+          { expected_package_count: delhiveryOrders.length },
+          { timeout: 60_000 },
+        );
+        const now = new Date().toISOString();
+        const updated = delhiveryOrders.map((order) => ({ ...order, status: "pickup_initiated" as const, pickupRequestedAt: now, updatedAt: now }));
+        const stored = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
+        const updatedById = new Map(updated.map((order) => [order.id, order]));
+        courierApi.writeStoredOrders([
+          ...updated.map((order) => ({ ...order, providerOrderId: order.providerOrderId || order.id })),
+          ...stored.filter((order) => !updatedById.has(order.id)),
+        ]);
+        await axios.post(
+          `${PROVIDER_ORDER_MIRROR_URL}/pickup-initiated`,
+          { orderIds: updated.map((order) => order.id) },
+          { timeout: 15_000 },
+        );
+        return { ordersProcessed: updated.length, errors: [] };
+      } catch (error) {
+        const data = axios.isAxiosError(error) ? error.response?.data : undefined;
+        const message = typeof data === "string"
+          ? data
+          : String(data?.error || data?.message || data?.detail || (error instanceof Error ? error.message : "Delhivery pickup request failed"));
+        throw new Error(message);
+      }
+    }
+
     if (shouldUseCourierApi()) {
       return {
         ordersProcessed: 0,

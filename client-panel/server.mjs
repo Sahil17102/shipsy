@@ -160,6 +160,35 @@ app.post("/api/providers/delhivery/create-order", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post("/api/providers/delhivery/pickup-request", async (req, res, next) => {
+  try {
+    const now = new Date();
+    // Delhivery expects local pickup date/time and the exact registered
+    // warehouse name. Default to the configured production warehouse.
+    const pickupDate = String(req.body?.pickup_date || now.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }));
+    const pickupTime = String(req.body?.pickup_time || "18:00:00");
+    const pickupLocation = String(req.body?.pickup_location || process.env.DELHIVERY_PICKUP_NAME || "BILAL");
+    const expectedPackageCount = Math.max(1, Number(req.body?.expected_package_count || 1));
+    const response = await fetch("https://track.delhivery.com/fm/request/new/", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Token ${requireEnv("DELHIVERY_TOKEN")}`,
+      },
+      body: JSON.stringify({
+        pickup_time: pickupTime,
+        pickup_date: pickupDate,
+        pickup_location: pickupLocation,
+        expected_package_count: expectedPackageCount,
+      }),
+    });
+    const { body, contentType } = await readUpstream(response);
+    if (!response.ok) return res.status(response.status).type(contentType || "application/json").send(body);
+    return res.status(response.status).json({ success: true, pickup: body });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/provider-orders", (_req, res) => {
   res.json({ orders: [...providerOrders.values()] });
 });
@@ -179,6 +208,21 @@ app.post("/api/provider-orders/:id/cancel", (req, res) => {
   providerOrders.set(String(order.id), updated);
   persistProviderOrders();
   return res.json({ order: updated });
+});
+
+app.post("/api/provider-orders/pickup-initiated", (req, res) => {
+  const ids = Array.isArray(req.body?.orderIds) ? req.body.orderIds.map(String) : [];
+  const now = new Date().toISOString();
+  const updated = [];
+  ids.forEach((id) => {
+    const order = findProviderOrder(id);
+    if (!order) return;
+    const next = { ...order, status: "pickup_initiated", pickupRequestedAt: now, updatedAt: now };
+    providerOrders.set(String(order.id), next);
+    updated.push(next);
+  });
+  if (updated.length) persistProviderOrders();
+  return res.json({ orders: updated });
 });
 
 async function orderPdf(order, kind) {
