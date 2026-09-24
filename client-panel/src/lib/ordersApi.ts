@@ -1108,6 +1108,13 @@ export const ordersApi = {
 
   /** Download the pickup manifest for a single order. Same download-only rules as the bulk version. */
   downloadManifest: async (id: string, orderId: string): Promise<void> => {
+    try {
+      const { data } = await axios.post(`${PROVIDER_ORDER_MIRROR_URL}/manifest`, { orderIds: [id] }, { responseType: "blob", timeout: 30_000 });
+      downloadBlob(data, `manifest-${orderId.replace(/[^\w.-]+/g, "_")}.pdf`);
+      return;
+    } catch {
+      // Fall through to the main API for database-backed orders.
+    }
     const { data } = await api.post("/orders/manifest", { orderIds: [id] }, { responseType: "blob" });
     downloadBlob(data, `manifest-${orderId.replace(/[^\w.-]+/g, "_")}.pdf`);
   },
@@ -1118,6 +1125,13 @@ export const ordersApi = {
    * orders manifested (that stays with "Initiate Pickup").
    */
   downloadBulkManifest: async (orderIds: string[]): Promise<void> => {
+    try {
+      const { data } = await axios.post(`${PROVIDER_ORDER_MIRROR_URL}/manifest`, { orderIds }, { responseType: "blob", timeout: 30_000 });
+      downloadBlob(data, `manifest-${orderIds.length}.pdf`);
+      return;
+    } catch {
+      // Fall through to the main API for database-backed orders.
+    }
     const { data } = await api.post("/orders/manifest", { orderIds }, { responseType: "blob" });
     downloadBlob(data, `manifest-${orderIds.length}.pdf`);
   },

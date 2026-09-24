@@ -240,6 +240,52 @@ async function orderPdf(order, kind) {
   return completed;
 }
 
+async function manifestPdf(orders) {
+  const doc = new PDFDocument({ size: "A4", margin: 40, info: { Title: "ShipSy Pickup Manifest", Author: "ShipSy" } });
+  const chunks = [];
+  doc.on("data", (chunk) => chunks.push(chunk));
+  const completed = new Promise((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
+  const blue = "#165DFF", ink = "#0F1F3D", muted = "#667085", line = "#D9E2F1", pale = "#EFF5FF";
+  const manifestNo = `MNF-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${String(Date.now()).slice(-5)}`;
+  const courier = [...new Set(orders.map((order) => order.courierName || order.serviceProvider || "Courier"))].join(", ");
+  doc.rect(0, 0, 595.28, 96).fill(ink);
+  doc.fillColor("white").font("Helvetica-Bold").fontSize(28).text("ShipSy", 40, 27);
+  doc.font("Helvetica").fontSize(8).text("SHIPPING, SIMPLIFIED.", 41, 60);
+  doc.font("Helvetica-Bold").fontSize(18).text("PICKUP MANIFEST", 320, 30, { width: 235, align: "right" });
+  doc.font("Helvetica").fontSize(8).text(manifestNo, 320, 59, { width: 235, align: "right" });
+  doc.fillColor(muted).font("Helvetica-Bold").fontSize(8).text("COURIER PARTNER", 40, 122).text("GENERATED ON", 335, 122);
+  doc.fillColor(ink).fontSize(12).text(courier, 40, 137, { width: 250 }).text(new Date().toLocaleString("en-IN"), 335, 137, { width: 220 });
+  doc.roundedRect(40, 174, 515, 58, 6).fill(pale);
+  doc.fillColor(muted).font("Helvetica-Bold").fontSize(8).text("TOTAL SHIPMENTS", 58, 188).text("PREPAID", 220, 188).text("COD", 365, 188).text("TOTAL WEIGHT", 465, 188);
+  const prepaid = orders.filter((order) => order.paymentType !== "cod").length;
+  const cod = orders.filter((order) => order.paymentType === "cod").length;
+  const weight = orders.reduce((sum, order) => sum + Number(order.weight || order.chargeableWeight || 0), 0);
+  doc.fillColor(ink).fontSize(15).text(String(orders.length), 58, 204).text(String(prepaid), 220, 204).text(String(cod), 365, 204).text(`${weight || "-"} g`, 465, 204);
+  const columns = [{ x: 48, w: 36, label: "#" }, { x: 84, w: 105, label: "ORDER ID" }, { x: 189, w: 130, label: "AWB" }, { x: 319, w: 120, label: "DESTINATION" }, { x: 439, w: 105, label: "PAYMENT" }];
+  let y = 258;
+  doc.rect(40, y, 515, 30).fill(blue);
+  doc.fillColor("white").font("Helvetica-Bold").fontSize(8);
+  columns.forEach((column) => doc.text(column.label, column.x, y + 11, { width: column.w }));
+  y += 30;
+  orders.slice(0, 24).forEach((order, index) => {
+    if (y > 720) { doc.addPage(); y = 50; }
+    if (index % 2 === 0) doc.rect(40, y, 515, 34).fill("#F8FAFD");
+    const address = order.deliveryAddress || {};
+    doc.fillColor(ink).font(index === 0 ? "Helvetica-Bold" : "Helvetica").fontSize(8);
+    const values = [String(index + 1), String(order.orderId || order.id), String(order.awb || "-"), [address.city, address.pincode].filter(Boolean).join(" - ") || "-", String(order.paymentType || "prepaid").toUpperCase()];
+    columns.forEach((column, colIndex) => doc.text(values[colIndex], column.x, y + 12, { width: column.w - 6, ellipsis: true }));
+    doc.moveTo(40, y + 34).lineTo(555, y + 34).strokeColor(line).stroke(); y += 34;
+  });
+  const signY = Math.max(y + 55, 610);
+  doc.strokeColor(line).moveTo(40, signY).lineTo(220, signY).stroke().moveTo(375, signY).lineTo(555, signY).stroke();
+  doc.fillColor(muted).font("Helvetica").fontSize(8).text("Seller / Warehouse signature", 40, signY + 9, { width: 180, align: "center" }).text("Courier executive signature", 375, signY + 9, { width: 180, align: "center" });
+  doc.fillColor(ink).font("Helvetica-Bold").fontSize(9).text("Handover declaration", 40, signY + 45);
+  doc.fillColor(muted).font("Helvetica").fontSize(8).text("The shipments listed above were handed over in sealed condition. The courier representative verified the shipment count at pickup.", 40, signY + 61, { width: 515, lineGap: 3 });
+  doc.fillColor(blue).font("Helvetica-Bold").fontSize(8).text("support@shipsy.in  |  shipsy.in", 40, 795, { width: 515, align: "center" });
+  doc.end();
+  return completed;
+}
+
 function findProviderOrder(id) {
   return [...providerOrders.values()].find((item) => [item.id, item.orderId, item.providerOrderId, item.awb].map(String).includes(String(id)));
 }
@@ -250,6 +296,15 @@ app.get("/api/provider-orders/:id/:document", async (req, res, next) => {
   if (!order || !["label", "invoice"].includes(req.params.document)) return res.status(404).json({ message: "Provider order document not found" });
   const kind = req.params.document;
   res.type("application/pdf").set("Content-Disposition", `attachment; filename=${kind}-${order.awb || order.orderId}.pdf`).send(await orderPdf(order, kind));
+  } catch (error) { next(error); }
+});
+
+app.post("/api/provider-orders/manifest", async (req, res, next) => {
+  try {
+    const ids = Array.isArray(req.body?.orderIds) ? req.body.orderIds.map(String) : [];
+    const orders = ids.map(findProviderOrder).filter(Boolean);
+    if (!orders.length) return res.status(404).json({ message: "No provider orders found for manifest" });
+    res.type("application/pdf").set("Content-Disposition", `attachment; filename=manifest-${Date.now()}.pdf`).send(await manifestPdf(orders));
   } catch (error) { next(error); }
 });
 
