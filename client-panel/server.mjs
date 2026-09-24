@@ -49,6 +49,9 @@ async function readUpstream(response) {
 }
 
 let teampafexToken = "";
+// Provider-created orders are mirrored here so the client and admin panels
+// share the same order list even when the upstream courier has no list API.
+const providerOrders = new Map();
 
 async function getTeampafexToken(force = false) {
   if (teampafexToken && !force) return teampafexToken;
@@ -141,6 +144,17 @@ app.post("/api/providers/delhivery/create-order", async (req, res, next) => {
     const { body, contentType } = await readUpstream(response);
     res.status(response.status).type(contentType || "application/json").send(body);
   } catch (error) { next(error); }
+});
+
+app.get("/api/provider-orders", (_req, res) => {
+  res.json({ orders: [...providerOrders.values()] });
+});
+
+app.post("/api/provider-orders", (req, res) => {
+  const order = req.body;
+  if (!order || !order.id) return res.status(400).json({ message: "Order id is required" });
+  providerOrders.set(String(order.id), order);
+  return res.status(201).json({ order });
 });
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));

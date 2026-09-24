@@ -16,7 +16,7 @@ import type {
 } from "./types";
 
 const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
-const PROVIDER_API_URL = "https://shipsy-courier-api.onrender.com/api/providers/teampafex/api/orders";
+const PROVIDER_API_URL = "https://shipsy-courier-api.onrender.com/api/provider-orders";
 
 type ProviderOrder = Record<string, unknown>;
 

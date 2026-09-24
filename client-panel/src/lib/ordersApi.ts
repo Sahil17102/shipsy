@@ -21,6 +21,8 @@ import {
   type FshipTrackingResponse,
 } from "./fshipApi";
 
+const PROVIDER_ORDER_MIRROR_URL = "https://shipsy-courier-api.onrender.com/api/provider-orders";
+
 // Re-export types for backward compatibility
 export type { Order, OrderStatus, OrderAddress, OrderProduct, OrderRate, CreateOrderPayload, TrackingEvent } from "./ordersTypes";
 
@@ -507,6 +509,7 @@ async function createDelhiveryOrder(data: CreateOrderPayload): Promise<Order> {
   // newly created shipment disappears from the client Orders screen.
   const existing = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
   courierApi.writeStoredOrders([order, ...existing.filter((item) => item.id !== order.id)]);
+  await axios.post(PROVIDER_ORDER_MIRROR_URL, order, { timeout: 15_000 }).catch(() => undefined);
   return order;
 }
 
@@ -820,6 +823,16 @@ async function getProviderOrders(params?: OrderListParams): Promise<OrderListRes
     orders = providerOrders.map(mapProviderOrder);
   } catch {
     orders = [];
+  }
+
+  try {
+    const mirror = await axios.get<{ orders?: Order[] }>(PROVIDER_ORDER_MIRROR_URL, { timeout: 15_000 });
+    const seen = new Set(orders.map((order) => order.id));
+    (mirror.data?.orders ?? []).forEach((order) => {
+      if (!seen.has(order.id)) orders.unshift(order);
+    });
+  } catch {
+    // Provider mirror is optional; continue with upstream/local orders.
   }
 
   const storedOrders = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
