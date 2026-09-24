@@ -99,6 +99,11 @@ app.all(["/api/providers/fship/*path", "/api/providers/logixmitra/*path"], async
         Accept: "application/json",
         "Content-Type": req.get("content-type") || "application/json",
         signature: requireEnv("FSHIP_PRIVATE_KEY"),
+        // FShip credentials are a key pair. The admin panel stores the
+        // public key alongside the private signature, and the upstream API
+        // expects both values on authenticated requests.
+        publickey: requireEnv("FSHIP_PUBLIC_KEY"),
+        "public-key": requireEnv("FSHIP_PUBLIC_KEY"),
       },
       body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body),
     });
