@@ -23,6 +23,10 @@ import {
 
 const PROVIDER_ORDER_MIRROR_URL = "https://shipsy-courier-api.onrender.com/api/provider-orders";
 
+async function mirrorProviderOrder(order: Order): Promise<void> {
+  await axios.post(PROVIDER_ORDER_MIRROR_URL, order, { timeout: 15_000 }).catch(() => undefined);
+}
+
 // Re-export types for backward compatibility
 export type { Order, OrderStatus, OrderAddress, OrderProduct, OrderRate, CreateOrderPayload, TrackingEvent } from "./ordersTypes";
 
@@ -509,7 +513,7 @@ async function createDelhiveryOrder(data: CreateOrderPayload): Promise<Order> {
   // newly created shipment disappears from the client Orders screen.
   const existing = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
   courierApi.writeStoredOrders([order, ...existing.filter((item) => item.id !== order.id)]);
-  await axios.post(PROVIDER_ORDER_MIRROR_URL, order, { timeout: 15_000 }).catch(() => undefined);
+  await mirrorProviderOrder(order);
   return order;
 }
 
@@ -1121,12 +1125,16 @@ export const ordersApi = {
     }
 
     if (shouldUseCourierApi()) {
-      const providerOrderId = extractProviderOrderId(id);
-      await courierApi.cancelOrder(providerOrderId);
       const order = await ordersApi.getById(id);
+      // Delhivery orders are created through the Delhivery proxy and must not
+      // be sent to the Teampafex cancellation endpoint.
+      if (order.serviceProvider !== "delhivery") {
+        await courierApi.cancelOrder(extractProviderOrderId(id));
+      }
       const updated = { ...order, status: "cancelled" as const, cancelledAt: new Date().toISOString() };
       const stored = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
       courierApi.writeStoredOrders([updated as Order & { providerOrderId: string }, ...stored.filter((item) => item.id !== updated.id)]);
+      await mirrorProviderOrder(updated);
       return updated;
     }
 
