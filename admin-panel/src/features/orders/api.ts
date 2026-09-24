@@ -185,6 +185,11 @@ export const ordersApi = {
   },
 
   getById: async (id: string, expand?: ExpandableOrderRelation[]): Promise<GetOrderDetailResponse> => {
+    if (useStaticData) {
+      const orders = await listProviderOrders();
+      const order = orders.find((item) => [item.id, item.orderId, item.awb].includes(id));
+      if (order) return { order: order as GetOrderDetailResponse["order"] };
+    }
     const { data } = await api.get(`/orders/${id}`, {
       params: expand && expand.length > 0 ? { expand: expand.join(",") } : undefined,
     });
@@ -215,6 +220,14 @@ export const ordersApi = {
   },
 
   cancelOrder: async (id: string, reason?: string): Promise<{ order: OrderListItem }> => {
+    if (useStaticData) {
+      try {
+        const { data } = await axios.post(`${PROVIDER_API_URL}/${encodeURIComponent(id)}/cancel`, { reason }, { timeout: 30_000 });
+        return { order: mapProviderOrder(data.order as ProviderOrder) };
+      } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.status !== 404) throw error;
+      }
+    }
     const { data } = await api.post(`/orders/${id}/cancel`, { reason });
     return data;
   },

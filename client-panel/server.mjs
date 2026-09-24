@@ -1,12 +1,14 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import fs from "node:fs";
 import PDFDocument from "pdfkit";
 import bwipjs from "bwip-js";
 
 const app = express();
 const port = Number(process.env.PORT || 10000);
 const root = path.dirname(fileURLToPath(import.meta.url));
+const providerOrdersFile = process.env.PROVIDER_ORDERS_FILE || path.join(process.env.DATA_DIR || root, "data", "provider-orders.json");
 
 app.disable("x-powered-by");
 app.use((req, res, next) => {
@@ -53,7 +55,17 @@ async function readUpstream(response) {
 let teampafexToken = "";
 // Provider-created orders are mirrored here so the client and admin panels
 // share the same order list even when the upstream courier has no list API.
-const providerOrders = new Map();
+function loadProviderOrders() {
+  try {
+    const rows = JSON.parse(fs.readFileSync(providerOrdersFile, "utf8"));
+    return new Map((Array.isArray(rows) ? rows : []).filter((order) => order?.id).map((order) => [String(order.id), order]));
+  } catch { return new Map(); }
+}
+const providerOrders = loadProviderOrders();
+function persistProviderOrders() {
+  fs.mkdirSync(path.dirname(providerOrdersFile), { recursive: true });
+  fs.writeFileSync(providerOrdersFile, JSON.stringify([...providerOrders.values()], null, 2), "utf8");
+}
 
 async function getTeampafexToken(force = false) {
   if (teampafexToken && !force) return teampafexToken;
@@ -156,7 +168,17 @@ app.post("/api/provider-orders", (req, res) => {
   const order = req.body;
   if (!order || !order.id) return res.status(400).json({ message: "Order id is required" });
   providerOrders.set(String(order.id), order);
+  persistProviderOrders();
   return res.status(201).json({ order });
+});
+
+app.post("/api/provider-orders/:id/cancel", (req, res) => {
+  const order = findProviderOrder(req.params.id);
+  if (!order) return res.status(404).json({ message: "Provider order not found" });
+  const updated = { ...order, status: "cancelled", cancellationReason: String(req.body?.reason || "Cancelled by admin"), cancelledAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  providerOrders.set(String(order.id), updated);
+  persistProviderOrders();
+  return res.json({ order: updated });
 });
 
 async function orderPdf(order, kind) {

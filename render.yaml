@@ -15,7 +15,13 @@ services:
     rootDir: client-panel
     buildCommand: npm install
     startCommand: npm start
+    disk:
+      name: shipsy-provider-orders
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
+      - key: DATA_DIR
+        value: /var/data
       - key: TEAMPAFEX_EMAIL
         sync: false
       - key: TEAMPAFEX_PASSWORD

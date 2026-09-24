@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Tag, Input, Select, Tooltip, Button, DatePicker } from "antd";
+import { Tag, Input, Select, Tooltip, Button, DatePicker, Popconfirm } from "antd";
 import dayjs from "dayjs";
 import {
   Package,
@@ -13,6 +13,7 @@ import {
   IndianRupee,
   Download,
   History,
+  XCircle,
 } from "lucide-react";
 import ServiceProviderBadge from "@/components/common/ServiceProviderBadge";
 import PageHeader from "@/components/common/PageHeader";
@@ -23,7 +24,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useDeferredFilters } from "@/hooks/useDeferredFilters";
 import { DEFAULT_PAGE_SIZE } from "@/lib/config";
-import { useAdminOrders, useOrderExports, useStartOrderExport } from "./queries";
+import { useAdminOrders, useCancelOrder, useOrderExports, useStartOrderExport } from "./queries";
 import ExportHistoryDrawer from "./components/ExportHistoryDrawer";
 import { useUsers } from "@/features/users/queries";
 import { useCouriers } from "@/features/couriers/queries";
@@ -84,6 +85,7 @@ export default function OrdersPage() {
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const startExport = useStartOrderExport();
+  const cancelOrder = useCancelOrder();
   // Poll in the background so the toolbar can show a live "building" pill even
   // while the drawer is shut.
   const { data: exportsData } = useOrderExports(true, { limit: 20 });
@@ -220,6 +222,30 @@ export default function OrdersPage() {
           <span className="text-sm text-muted">{formatDate(record.createdAt)}</span>
         </Tooltip>
       ),
+    },
+    {
+      title: "Actions",
+      key: "actions",
+      width: 110,
+      render: (_, record) => {
+        const disabled = ["cancelled", "delivered", "rto_delivered"].includes(record.status);
+        return (
+          <div onClick={(event) => event.stopPropagation()}>
+            <Popconfirm
+              title="Cancel this order?"
+              description="The order will remain visible with Cancelled status."
+              okText="Cancel order"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => cancelOrder.mutate({ id: record.id, reason: "Cancelled by admin" })}
+              disabled={disabled}
+            >
+              <Button danger size="small" icon={<XCircle size={13} />} disabled={disabled} loading={cancelOrder.isPending}>
+                Cancel
+              </Button>
+            </Popconfirm>
+          </div>
+        );
+      },
     },
   ];
 
