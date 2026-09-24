@@ -157,6 +157,37 @@ app.post("/api/provider-orders", (req, res) => {
   return res.status(201).json({ order });
 });
 
+function pdfText(value) {
+  return String(value ?? "").replace(/[\\()]/g, "\\$&").replace(/[^\x20-\x7e]/g, "?");
+}
+
+function orderPdf(order, kind) {
+  const address = order.deliveryAddress || {};
+  const lines = kind === "label"
+    ? ["SHIPSY  |  SHIPPING LABEL", `Order: ${order.orderId || order.id}`, `AWB: ${order.awb || "-"}`, `Courier: ${order.courierName || "Delhivery"}`, "", "SHIP TO", address.contactName, address.phone, address.addressLine1, `${address.city}, ${address.state} - ${address.pincode}`, "", `Payment: ${String(order.paymentType || "prepaid").toUpperCase()}`]
+    : ["SHIPSY  |  TAX INVOICE", `Invoice: ${order.orderId || order.id}`, `Order date: ${order.createdAt || new Date().toISOString()}`, `AWB: ${order.awb || "-"}`, "", "BILL TO", address.contactName, address.phone, address.addressLine1, `${address.city}, ${address.state} - ${address.pincode}`, "", `Shipment charge: INR ${Number(order.rate?.totalCharge || order.orderAmount || 0).toFixed(2)}`, `Payment mode: ${String(order.paymentType || "prepaid").toUpperCase()}`, "", "Thank you for shipping with ShipSy."];
+  const commands = ["BT", "/F1 18 Tf", "50 760 Td", `(${pdfText(lines[0])}) Tj`, "/F1 10 Tf"];
+  lines.slice(1).forEach((line) => commands.push("0 -24 Td", `(${pdfText(line)}) Tj`));
+  commands.push("ET");
+  const stream = commands.join("\n");
+  const objects = [`<< /Type /Catalog /Pages 2 0 R >>`, `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>`, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`, `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];
+  let pdf = "%PDF-1.4\n"; const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf, "utf8")); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = Buffer.byteLength(pdf, "utf8"); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `).join("\n")}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(pdf, "utf8");
+}
+
+function findProviderOrder(id) {
+  return [...providerOrders.values()].find((item) => [item.id, item.orderId, item.providerOrderId, item.awb].map(String).includes(String(id)));
+}
+
+app.get("/api/provider-orders/:id/:document", (req, res) => {
+  const order = findProviderOrder(req.params.id);
+  if (!order || !["label", "invoice"].includes(req.params.document)) return res.status(404).json({ message: "Provider order document not found" });
+  const kind = req.params.document;
+  res.type("application/pdf").set("Content-Disposition", `attachment; filename=${kind}-${order.awb || order.orderId}.pdf`).send(orderPdf(order, kind));
+});
+
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use(express.static(path.join(root, "dist")));
 app.get("*path", (_req, res) => res.sendFile(path.join(root, "dist", "index.html")));

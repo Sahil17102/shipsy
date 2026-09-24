@@ -976,11 +976,25 @@ export const ordersApi = {
   },
 
   downloadLabel: async (id: string, awb: string): Promise<void> => {
+    try {
+      const { data } = await axios.get(`${PROVIDER_ORDER_MIRROR_URL}/${encodeURIComponent(awb || id)}/label`, { responseType: "blob", timeout: 15_000 });
+      downloadBlob(data, `label-${(awb || id).replace(/[^\w.-]+/g, "_")}.pdf`);
+      return;
+    } catch {
+      // Fall through to the main API for database-backed orders.
+    }
     const { data } = await api.get(`/orders/${id}/label`, { responseType: "blob" });
     downloadBlob(data, `label-${(awb || id).replace(/[^\w.-]+/g, "_")}.pdf`);
   },
 
   downloadInvoice: async (id: string, orderId: string): Promise<void> => {
+    try {
+      const { data } = await axios.get(`${PROVIDER_ORDER_MIRROR_URL}/${encodeURIComponent(orderId || id)}/invoice`, { responseType: "blob", timeout: 15_000 });
+      downloadBlob(data, `invoice-${(orderId || id).replace(/[^\w.-]+/g, "_")}.pdf`);
+      return;
+    } catch {
+      // Fall through to the main API for database-backed orders.
+    }
     const { data } = await api.get(`/orders/${id}/invoice`, { responseType: "blob" });
     downloadBlob(data, `invoice-${(orderId || id).replace(/[^\w.-]+/g, "_")}.pdf`);
   },
