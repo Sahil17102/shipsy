@@ -23,10 +23,13 @@ type ProviderOrder = Record<string, unknown>;
 function providerStatus(value: unknown): OrderStatus {
   const status = String(value || "created").toLowerCase().replace(/[\s-]+/g, "_");
   const aliases: Record<string, OrderStatus> = {
+    created: "created", processing: "processing", booked: "booked",
+    pickup_initiated: "pickup_initiated", shipped: "shipped",
     ready_to_ship: "booked", manifested: "booked", dispatched: "shipped",
     in_transit: "in_transit", out_for_delivery: "out_for_delivery", delivered: "delivered",
     cancelled: "cancelled", canceled: "cancelled", rto: "rto_initiated",
-    rto_in_transit: "rto_in_transit", rto_delivered: "rto_delivered", ndr: "ndr",
+    rto_initiated: "rto_initiated", rto_in_transit: "rto_in_transit",
+    rto_delivered: "rto_delivered", ndr: "ndr", lost: "lost",
   };
   return aliases[status] ?? "created";
 }
