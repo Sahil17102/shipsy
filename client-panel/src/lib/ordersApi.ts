@@ -2,6 +2,7 @@ import axios from "axios";
 import { api } from "./api";
 import { downloadBlob } from "./utils";
 import type { Order, CreateOrderPayload, TrackingEvent } from "./ordersTypes";
+import { walletApi } from "./walletApi";
 import {
   courierApi,
   isCourierApiConfigured,
@@ -874,35 +875,43 @@ async function getProviderOrders(params?: OrderListParams): Promise<OrderListRes
 
 export const ordersApi = {
   create: async (data: CreateOrderPayload): Promise<Order> => {
-    if (isFshipServiceProvider(data.serviceProvider) || data.courierId.toLowerCase().includes("logixmitra")) {
-      return createFshipOrder(data);
-    }
-
-    if (data.serviceProvider?.toLowerCase() === "delhivery" || data.courierId.toLowerCase().includes("delhivery")) {
-      return createDelhiveryOrder(data);
-    }
-
-    if (shouldUseCourierApi()) {
-      if (!isCourierApiConfigured()) {
-        throw new Error(
-          "Real shipment was not sent to Teampafex. Configure TEAMPAFEX_EMAIL and TEAMPAFEX_PASSWORD on the Shipsy API server, then redeploy.",
-        );
-      }
-
-      return createDirectCourierOrder(data);
-    }
-
+    const shippingCharge = Math.round(Number(data.rate?.totalCharge || data.rate?.freightCharge || data.rate?.forward || 0) * 100) / 100;
+    const provider = data.serviceProvider || data.courierName || "courier";
+    await walletApi.debitOrder(shippingCharge, data.orderId, provider);
     try {
-      const { data: result } = await api.post("/orders", data);
-      if (!result?.order) throw apiServerUnavailableError();
-      return result.order as Order;
-    } catch (err) {
-      if (isApiUnavailableError(err)) {
-        const sameOriginOrder = await createSameOriginApiOrder(data);
-        if (sameOriginOrder) return sameOriginOrder;
+      if (isFshipServiceProvider(data.serviceProvider) || data.courierId.toLowerCase().includes("logixmitra")) {
+        return await createFshipOrder(data);
       }
-      if (isCourierApiConfigured()) return createDirectCourierOrder(data);
-      if (isApiUnavailableError(err)) throw apiServerUnavailableError();
+
+      if (data.serviceProvider?.toLowerCase() === "delhivery" || data.courierId.toLowerCase().includes("delhivery")) {
+        return await createDelhiveryOrder(data);
+      }
+
+      if (shouldUseCourierApi()) {
+        if (!isCourierApiConfigured()) {
+          throw new Error(
+            "Real shipment was not sent to Teampafex. Configure TEAMPAFEX_EMAIL and TEAMPAFEX_PASSWORD on the Shipsy API server, then redeploy.",
+          );
+        }
+
+        return await createDirectCourierOrder(data);
+      }
+
+      try {
+        const { data: result } = await api.post("/orders", data);
+        if (!result?.order) throw apiServerUnavailableError();
+        return result.order as Order;
+      } catch (err) {
+        if (isApiUnavailableError(err)) {
+          const sameOriginOrder = await createSameOriginApiOrder(data);
+          if (sameOriginOrder) return sameOriginOrder;
+        }
+        if (isCourierApiConfigured()) return await createDirectCourierOrder(data);
+        if (isApiUnavailableError(err)) throw apiServerUnavailableError();
+        throw err;
+      }
+    } catch (err) {
+      await walletApi.refundOrder(shippingCharge, data.orderId, provider);
       throw err;
     }
   },

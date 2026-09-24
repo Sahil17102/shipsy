@@ -53,12 +53,16 @@ export async function POST(request: Request) {
     const type = body.type === "debit" ? "debit" : "credit";
     const amount = Math.round(Number(body.amount) * 100) / 100;
     if (!userId || !Number.isFinite(amount) || amount <= 0) return Response.json({ error: "Valid userId and amount are required" }, { status: 400, headers: cors(request) });
+    const source = String(body.source ?? "admin_adjustment");
+    const orderId = String(body.orderId ?? "").trim();
+    const existing = orderId && (transactions.get(userId) ?? []).find((item) => item.type === type && item.meta?.orderId === orderId && item.meta?.source === source);
+    if (existing) return Response.json({ message: "Wallet transaction already recorded", wallet: { id: `wallet-${userId}`, userId, balance: balanceFor(userId), currency: "INR" }, transaction: existing }, { headers: cors(request) });
     if (type === "debit" && amount > balanceFor(userId)) return Response.json({ error: "Insufficient wallet balance" }, { status: 400, headers: cors(request) });
     const now = new Date().toISOString();
     const transaction: WalletTransaction = {
       id: `wallet-txn-${Date.now()}`, walletId: `wallet-${userId}`, amount, currency: "INR", type,
       reason: String(body.reason ?? (type === "credit" ? "Admin credit" : "Admin debit")), ref: `ADM-${Date.now().toString().slice(-8)}`,
-      meta: { source: String(body.source ?? "admin_adjustment"), notes: String(body.notes ?? "") }, createdAt: now,
+      meta: { source, notes: String(body.notes ?? ""), orderId, serviceProvider: String(body.serviceProvider ?? "") }, createdAt: now,
     };
     transactions.set(userId, [transaction, ...(transactions.get(userId) ?? [])]);
     return Response.json({ message: "Wallet adjusted successfully", wallet: { id: `wallet-${userId}`, userId, balance: balanceFor(userId), currency: "INR", updatedAt: now }, transaction }, { status: 201, headers: cors(request) });

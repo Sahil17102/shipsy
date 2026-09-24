@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { ordersApi, type CreateOrderPayload, type TrackingEvent, type OrderListParams, type BulkCreateResponse, type NdrRtoFilterParams } from "@/lib/ordersApi";
 import { toast } from "sonner";
+import { WALLET_QUERY_KEY, WALLET_TRANSACTIONS_KEY } from "./useWallet";
 
 export const ORDERS_QUERY_KEY = ["orders"] as const;
 
@@ -10,6 +11,8 @@ export function useCreateOrder() {
     mutationFn: (payload: CreateOrderPayload) => ordersApi.create(payload),
     onSuccess: (order) => {
       queryClient.invalidateQueries({ queryKey: ORDERS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: WALLET_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: WALLET_TRANSACTIONS_KEY });
       toast.success("Order created successfully", {
         description: order.awb
           ? `AWB: ${order.awb} - ${order.courierName ?? order.serviceProvider}`
