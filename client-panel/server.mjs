@@ -10,6 +10,7 @@ app.disable("x-powered-by");
 app.use((req, res, next) => {
   const allowed = new Set([
     "https://shipsy-client-wkxv.onrender.com",
+    "https://shipsy-1admin.onrender.com",
     "http://localhost:5173",
   ]);
   const origin = req.get("origin");

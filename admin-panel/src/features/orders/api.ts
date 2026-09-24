@@ -1,3 +1,4 @@
+import axios from "axios";
 import { api } from "@/lib/api";
 import type {
   ListOrdersResponse,
@@ -15,6 +16,72 @@ import type {
 } from "./types";
 
 const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
+const PROVIDER_API_URL = "https://shipsy-courier-api.onrender.com/api/providers/teampafex/api/orders";
+
+type ProviderOrder = Record<string, unknown>;
+
+function providerStatus(value: unknown): OrderStatus {
+  const status = String(value || "created").toLowerCase().replace(/[\s-]+/g, "_");
+  const aliases: Record<string, OrderStatus> = {
+    ready_to_ship: "booked", manifested: "booked", dispatched: "shipped",
+    in_transit: "in_transit", out_for_delivery: "out_for_delivery", delivered: "delivered",
+    cancelled: "cancelled", canceled: "cancelled", rto: "rto_initiated",
+    rto_in_transit: "rto_in_transit", rto_delivered: "rto_delivered", ndr: "ndr",
+  };
+  return aliases[status] ?? "created";
+}
+
+function numberValue(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapProviderOrder(raw: ProviderOrder): OrderListItem {
+  const id = String(raw.id ?? raw.order_id ?? raw.awb_no ?? "");
+  const amount = numberValue(raw.payment_amount ?? raw.order_amount ?? raw.total_order_value);
+  const charge = numberValue(raw.shipping_amount ?? raw.shipping_charge ?? raw.total_charges);
+  return {
+    id,
+    userId: "courier-api",
+    courierId: String(raw.courier_id ?? raw.delivery_partner_id ?? ""),
+    pickupAddressId: String(raw.pickup_address_id ?? ""),
+    orderId: String(raw.invoice_number ?? raw.order_number ?? id),
+    orderType: String(raw.order_type ?? "B2C").toUpperCase() === "B2B" ? "B2B" : "B2C",
+    paymentType: String(raw.payment_method ?? "PREPAID").toLowerCase() === "cod" ? "cod" : "prepaid",
+    status: providerStatus(raw.status ?? raw.order_status),
+    serviceProvider: "delhivery",
+    courierName: "Delhivery",
+    awb: String(raw.awb_no ?? raw.awb ?? ""),
+    deliveryAddress: {
+      contactName: String(raw.buyer_name ?? raw.customer_name ?? ""),
+      phone: String(raw.buyer_mobile ?? raw.phone ?? ""),
+      email: raw.buyer_email ? String(raw.buyer_email) : undefined,
+      addressLine1: String(raw.buyer_address1 ?? raw.address ?? ""),
+      addressLine2: raw.buyer_address2 ? String(raw.buyer_address2) : undefined,
+      city: String(raw.buyer_city ?? raw.city ?? ""),
+      state: String(raw.buyer_state ?? raw.state ?? ""),
+      country: String(raw.country ?? "India"),
+      pincode: String(raw.buyer_pincode ?? raw.pincode ?? ""),
+    },
+    weight: numberValue(raw.weight ?? raw.total_weight),
+    chargeableWeight: numberValue(raw.chargeable_weight ?? raw.weight),
+    products: [],
+    orderAmount: amount,
+    codAmount: numberValue(raw.cod_amount),
+    rate: { forward: charge, rto: 0, codCharges: 0, otherCharges: 0, freightCharge: charge, totalCharge: charge, zone: String(raw.zone ?? "") },
+    createdAt: String(raw.order_date ?? raw.created_at ?? new Date().toISOString()),
+  };
+}
+
+async function listProviderOrders(): Promise<OrderListItem[]> {
+  try {
+    const { data } = await axios.get(PROVIDER_API_URL, { timeout: 60_000 });
+    const rows = Array.isArray(data) ? data : data?.orders ?? data?.data?.orders ?? data?.data ?? [];
+    return Array.isArray(rows) ? rows.map(mapProviderOrder).filter((order) => order.id) : [];
+  } catch {
+    return [];
+  }
+}
 
 function emptyOrderStats() {
   return {
@@ -80,7 +147,24 @@ export const ordersApi = {
     if (useStaticData) {
       const page = params?.page ?? 1;
       const limit = params?.limit ?? 20;
-      return { orders: [], pagination: { page, limit, total: 0, totalPages: 1 }, stats: emptyOrderStats() };
+      let orders = await listProviderOrders();
+      if (params?.search) {
+        const query = params.search.toLowerCase();
+        orders = orders.filter((order) => [order.orderId, order.awb, order.deliveryAddress.contactName, order.deliveryAddress.city]
+          .some((value) => String(value || "").toLowerCase().includes(query)));
+      }
+      if (params?.status) orders = orders.filter((order) => order.status === params.status);
+      if (params?.orderType) orders = orders.filter((order) => order.orderType === params.orderType);
+      if (params?.paymentType) orders = orders.filter((order) => order.paymentType === params.paymentType);
+      const stats = emptyOrderStats();
+      stats.total = orders.length;
+      orders.forEach((order) => {
+        stats[order.status] += 1;
+        stats.totalRevenue += order.rate.totalCharge;
+      });
+      const total = orders.length;
+      const start = (page - 1) * limit;
+      return { orders: orders.slice(start, start + limit), pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) }, stats };
     }
     const { data } = await api.get("/orders", { params: withExpand(params) });
     return data as ListOrdersResponse;
