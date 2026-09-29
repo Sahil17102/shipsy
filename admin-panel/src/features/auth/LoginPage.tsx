@@ -33,8 +33,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { login, user } = useAuth();
 
-  const [email, setEmail] = useState("admin@shipsy.in");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
@@ -131,7 +131,7 @@ export default function LoginPage() {
               <p className="text-sm text-muted">Sign in with your admin credentials</p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
               {/* Email */}
               <div
                 className={`flex items-center h-12 rounded-xl border-2 transition-all duration-200 ${
@@ -153,7 +153,7 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   onFocus={() => setFocusedField("email")}
                   onBlur={() => setFocusedField(null)}
-                  placeholder="admin@shipsy.in"
+                  placeholder="Email address"
                   autoComplete="off"
                   name="shipsy-admin-email"
                   autoFocus

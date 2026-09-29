@@ -16,6 +16,10 @@ app.use((req, res, next) => {
     "https://shipsy-client-wkxv.onrender.com",
     "https://shipsy-1admin.onrender.com",
     "http://localhost:5173",
+    ...String(process.env.ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
   ]);
   const origin = req.get("origin");
   if (origin && allowed.has(origin)) res.set("Access-Control-Allow-Origin", origin);
@@ -378,7 +382,8 @@ app.post("/api/provider-orders/manifest", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.get("/api/health", (_req, res) => res.json({ ok: true }));
+app.get("/", (_req, res) => res.json({ service: "goshipsy-api", ok: true }));
+app.get("/api/health", (_req, res) => res.json({ service: "goshipsy-api", ok: true }));
 app.use(express.static(path.join(root, "dist")));
 app.get("*path", (_req, res) => res.sendFile(path.join(root, "dist", "index.html")));
 app.use((error, _req, res, _next) => {

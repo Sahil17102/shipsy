@@ -35,7 +35,7 @@ const logos = [
   'Pothys',
   'Minimalist',
 ];
-const CLIENT_PANEL_URL = 'https://shipsy-client-wkxv.onrender.com/';
+const CLIENT_PANEL_URL = '/login';
 const features = [
   {
     icon: Route,
