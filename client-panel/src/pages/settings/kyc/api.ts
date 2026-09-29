@@ -6,6 +6,7 @@ import { getRequiredDocuments } from "./config";
 import type { DocumentField, DocumentKey, KycRecord, KycResponse, KycSubmitPayload } from "./types";
 
 const USER_STORAGE_KEY = "shipsy-client-user";
+const useCloudStorage = import.meta.env.VITE_R2_STORAGE_ENABLED === "true";
 const DOCUMENT_KEYS: DocumentKey[] = [
   "selfie",
   "panCard",
@@ -156,21 +157,22 @@ function makeMissingDocumentError(missingDocuments: DocumentKey[]): Error {
 export const kycApi = {
   /** Fetch the current user's KYC record. Falls back to local demo KYC on static deploys. */
   get: async (): Promise<KycResponse> => {
-    if (shouldUseStaticClientData()) {
+    if (shouldUseStaticClientData() && !useCloudStorage) {
       return { success: true, kyc: readStaticKyc() };
     }
 
     try {
       const { data } = await api.get("/kyc");
       return isKycResponse(data) ? data : { success: true, kyc: readStaticKyc() };
-    } catch {
+    } catch (error) {
+      if (useCloudStorage) throw error;
       return { success: true, kyc: readStaticKyc() };
     }
   },
 
   /** Submit / update KYC details and set status to pending. */
   submit: async (payload: KycSubmitPayload): Promise<KycResponse> => {
-    if (!shouldUseStaticClientData()) {
+    if (!shouldUseStaticClientData() || useCloudStorage) {
       try {
         const { data } = await api.post("/kyc", payload);
         if (isKycResponse(data)) {
@@ -180,7 +182,8 @@ export const kycApi = {
           }
           return data;
         }
-      } catch {
+      } catch (error) {
+        if (useCloudStorage) throw error;
         // Static panels should remain usable when the API is absent.
       }
     }
@@ -204,7 +207,7 @@ export const kycApi = {
     documentKey: string,
     file: File,
   ): Promise<KycResponse> => {
-    if (!shouldUseStaticClientData()) {
+    if (!shouldUseStaticClientData() || useCloudStorage) {
       try {
         const formData = new FormData();
         formData.append("document", file);
@@ -219,7 +222,8 @@ export const kycApi = {
           }
           return data;
         }
-      } catch {
+      } catch (error) {
+        if (useCloudStorage) throw error;
         // Use the local document state on static deploys and API failures.
       }
     }

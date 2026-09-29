@@ -22,7 +22,7 @@ import {
   type FshipTrackingResponse,
 } from "./fshipApi";
 
-const PROVIDER_ORDER_MIRROR_URL = "https://shipsy-courier-api.onrender.com/api/provider-orders";
+const PROVIDER_ORDER_MIRROR_URL = `${(import.meta.env.VITE_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "")}/provider-orders`;
 
 async function mirrorProviderOrder(order: Order): Promise<void> {
   await axios.post(PROVIDER_ORDER_MIRROR_URL, order, { timeout: 15_000 }).catch(() => undefined);

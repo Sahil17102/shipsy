@@ -16,7 +16,7 @@ import type {
 } from "./types";
 
 const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
-const PROVIDER_API_URL = "https://shipsy-courier-api.onrender.com/api/provider-orders";
+const PROVIDER_API_URL = `${(import.meta.env.VITE_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "")}/provider-orders`;
 
 type ProviderOrder = Record<string, unknown>;
 

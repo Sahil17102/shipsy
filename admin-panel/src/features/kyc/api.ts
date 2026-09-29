@@ -3,8 +3,9 @@ import { readStaticUsers, writeStaticUsers } from "@/lib/staticSeeds";
 import type { UserListItem } from "@/features/users/types";
 import type { AdminKycResponse, DocumentField, KycRecord, KycStatus } from "./types";
 
-const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
-const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
+const useStaticData = import.meta.env.VITE_R2_STORAGE_ENABLED !== "true";
+const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "");
+const API_BASE_URL = (import.meta.env.VITE_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "");
 const APPROVED_DEMO_USER_ID = "client-sahilmittal1920@gmail.com";
 
 function documentFor(status: KycStatus): DocumentField {
@@ -116,5 +117,5 @@ export const adminKycApi = {
 
   /** Build a URL to serve a KYC document via the admin proxy */
   getDocumentUrl: (userId: string, key: string, filename: string): string =>
-    `/api/admin/document/${userId}/${key}/${filename}`,
+    `${API_BASE_URL}/admin/document/${userId}/${key}/${filename}`,
 };

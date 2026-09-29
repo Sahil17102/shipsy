@@ -7,12 +7,14 @@ import PDFDocument from "pdfkit";
 import bwipjs from "bwip-js";
 import dotenv from "dotenv";
 import nodemailer from "nodemailer";
+import { registerStorageRoutes, shipsyObjectKey, putShipsyObject } from "./shipsy-storage.mjs";
 
 const app = express();
 const port = Number(process.env.PORT || 10000);
 const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || path.join(root, ".env") });
 const providerOrdersFile = process.env.PROVIDER_ORDERS_FILE || path.join(process.env.DATA_DIR || root, "data", "provider-orders.json");
+const dataDir = process.env.DATA_DIR || path.join(root, "data");
 
 app.disable("x-powered-by");
 app.use((req, res, next) => {
@@ -29,8 +31,8 @@ app.use((req, res, next) => {
   if (origin && allowed.has(origin)) res.set("Access-Control-Allow-Origin", origin);
   res.set("Vary", "Origin");
   res.set("Access-Control-Allow-Credentials", "true");
-  res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
-  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Shipsy-User-Id, X-Shipsy-User-Email");
+  res.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -523,7 +525,10 @@ app.get("/api/provider-orders/:id/:document", async (req, res, next) => {
   const order = findProviderOrder(req.params.id);
   if (!order || !["label", "invoice"].includes(req.params.document)) return res.status(404).json({ message: "Provider order document not found" });
   const kind = req.params.document;
-  res.type("application/pdf").set("Content-Disposition", `attachment; filename=${kind}-${order.awb || order.orderId}.pdf`).send(await orderPdf(order, kind));
+  const pdf = await orderPdf(order, kind);
+  const storageKey = shipsyObjectKey("documents", kind, `${order.awb || order.orderId || order.id}.pdf`);
+  await putShipsyObject(storageKey, pdf, "application/pdf", { kind, orderId: order.orderId || order.id });
+  res.type("application/pdf").set("X-Shipsy-Storage-Key", storageKey).set("Content-Disposition", `attachment; filename=${kind}-${order.awb || order.orderId}.pdf`).send(pdf);
   } catch (error) { next(error); }
 });
 
@@ -532,9 +537,15 @@ app.post("/api/provider-orders/manifest", async (req, res, next) => {
     const ids = Array.isArray(req.body?.orderIds) ? req.body.orderIds.map(String) : [];
     const orders = ids.map(findProviderOrder).filter(Boolean);
     if (!orders.length) return res.status(404).json({ message: "No provider orders found for manifest" });
-    res.type("application/pdf").set("Content-Disposition", `attachment; filename=manifest-${Date.now()}.pdf`).send(await manifestPdf(orders));
+    const pdf = await manifestPdf(orders);
+    const manifestId = crypto.createHash("sha256").update(ids.sort().join(":" )).digest("hex").slice(0, 20);
+    const storageKey = shipsyObjectKey("documents", "manifests", `${manifestId}.pdf`);
+    await putShipsyObject(storageKey, pdf, "application/pdf", { kind: "manifest", orderCount: orders.length });
+    res.type("application/pdf").set("X-Shipsy-Storage-Key", storageKey).set("Content-Disposition", `attachment; filename=manifest-${Date.now()}.pdf`).send(pdf);
   } catch (error) { next(error); }
 });
+
+registerStorageRoutes(app, { dataDir });
 
 app.get("/", (_req, res) => res.json({ service: "goshipsy-api", ok: true }));
 app.get("/api/health", (_req, res) => res.json({ service: "goshipsy-api", ok: true }));
