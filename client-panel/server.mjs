@@ -2,12 +2,16 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import PDFDocument from "pdfkit";
 import bwipjs from "bwip-js";
+import dotenv from "dotenv";
+import nodemailer from "nodemailer";
 
 const app = express();
 const port = Number(process.env.PORT || 10000);
 const root = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || path.join(root, ".env") });
 const providerOrdersFile = process.env.PROVIDER_ORDERS_FILE || path.join(process.env.DATA_DIR || root, "data", "provider-orders.json");
 
 app.disable("x-powered-by");
@@ -24,6 +28,7 @@ app.use((req, res, next) => {
   const origin = req.get("origin");
   if (origin && allowed.has(origin)) res.set("Access-Control-Allow-Origin", origin);
   res.set("Vary", "Origin");
+  res.set("Access-Control-Allow-Credentials", "true");
   res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
   res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -31,6 +36,155 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
+
+const otpStore = new Map();
+let mailTransport;
+
+function normalizedEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function requireEmail(value) {
+  const email = normalizedEmail(value);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    const error = new Error("A valid email address is required");
+    error.status = 400;
+    throw error;
+  }
+  return email;
+}
+
+function otpDigest(email, code) {
+  return crypto
+    .createHmac("sha256", requireEnv("OTP_SECRET"))
+    .update(`${email}:${code}`)
+    .digest("hex");
+}
+
+function getMailTransport() {
+  if (mailTransport) return mailTransport;
+  mailTransport = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: String(process.env.SMTP_SECURE || "true") !== "false",
+    auth: {
+      user: requireEnv("SMTP_USER"),
+      pass: requireEnv("SMTP_PASS").replace(/\s+/g, ""),
+    },
+  });
+  return mailTransport;
+}
+
+function publicUserForEmail(email) {
+  return {
+    id: `client-${email}`,
+    email,
+    phone: null,
+    name: null,
+    firstName: null,
+    lastName: null,
+    role: "user",
+    teamRole: "owner",
+    parentUserId: null,
+    isVerified: true,
+    onboardingComplete: false,
+    hasPassword: false,
+  };
+}
+
+app.post("/api/auth/send-otp", async (req, res, next) => {
+  try {
+    const email = requireEmail(req.body?.identifier);
+    const current = otpStore.get(email);
+    if (current && Date.now() - current.sentAt < 30_000) {
+      return res.status(429).json({ message: "Please wait before requesting another OTP." });
+    }
+
+    const code = String(crypto.randomInt(100000, 1000000));
+    otpStore.set(email, {
+      digest: otpDigest(email, code),
+      expiresAt: Date.now() + 10 * 60_000,
+      sentAt: Date.now(),
+      attempts: 0,
+    });
+
+    const fromAddress = normalizedEmail(process.env.MAIL_FROM_ADDRESS || process.env.SMTP_USER);
+    const fromName = String(process.env.MAIL_FROM_NAME || "ShipSy").trim();
+    await getMailTransport().sendMail({
+      from: { name: fromName, address: fromAddress },
+      to: email,
+      subject: `${code} is your ShipSy verification code`,
+      text: `Your ShipSy verification code is ${code}. It expires in 10 minutes. If you did not request this code, you can ignore this email.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:28px;color:#0f1f3d"><h2 style="margin:0 0 12px">ShipSy verification</h2><p>Use this one-time code to continue:</p><div style="font-size:32px;font-weight:700;letter-spacing:8px;color:#165dff;margin:24px 0">${code}</div><p>This code expires in 10 minutes.</p><p style="color:#667085;font-size:13px">If you did not request this code, you can safely ignore this email.</p></div>`,
+    });
+
+    return res.json({ isNewUser: true, message: "OTP sent successfully." });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/verify-otp", (req, res, next) => {
+  try {
+    const email = requireEmail(req.body?.identifier);
+    const code = String(req.body?.code || "").trim();
+    const entry = otpStore.get(email);
+    if (!entry || entry.expiresAt < Date.now()) {
+      otpStore.delete(email);
+      return res.status(400).json({ message: "OTP has expired. Request a new code." });
+    }
+    if (entry.attempts >= 5) {
+      otpStore.delete(email);
+      return res.status(429).json({ message: "Too many attempts. Request a new code." });
+    }
+    entry.attempts += 1;
+    const expected = Buffer.from(entry.digest, "hex");
+    const received = Buffer.from(otpDigest(email, code), "hex");
+    if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) {
+      return res.status(400).json({ message: "Invalid OTP." });
+    }
+    otpStore.delete(email);
+    return res.json({ user: publicUserForEmail(email), isNewUser: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/auth/login", (req, res, next) => {
+  try {
+    const email = requireEmail(req.body?.email);
+    const password = String(req.body?.password || "");
+    const expectedEmail = normalizedEmail(requireEnv("ADMIN_EMAIL"));
+    const expectedPassword = Buffer.from(requireEnv("ADMIN_PASSWORD"));
+    const receivedPassword = Buffer.from(password);
+    const passwordMatches =
+      expectedPassword.length === receivedPassword.length &&
+      crypto.timingSafeEqual(expectedPassword, receivedPassword);
+    if (email !== expectedEmail || !passwordMatches) {
+      return res.status(401).json({ message: "Invalid admin email or password." });
+    }
+    return res.json({
+      token: crypto.randomBytes(24).toString("base64url"),
+      user: {
+        id: "shipsy-admin",
+        email: expectedEmail,
+        phone: null,
+        name: process.env.ADMIN_NAME || "ShipSy Admin",
+        firstName: "ShipSy",
+        lastName: "Admin",
+        role: "superadmin",
+        designation: "Administrator",
+        roleLabel: "Superadmin",
+        assignedSellerIds: [],
+        permissions: [],
+        isVerified: true,
+        onboardingComplete: true,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 function requireEnv(name) {
   // Render/dashboard values are sometimes pasted with surrounding quotes.
@@ -308,7 +462,7 @@ async function orderPdf(order, kind) {
     doc.roundedRect(365, totalY + 51, 188, 43, 6).fill(ink);
     doc.fillColor("white").fontSize(10).text("TOTAL", 382, totalY + 67).fontSize(13).text(`INR ${total.toFixed(2)}`, 450, totalY + 64, { width: 86, align: "right" });
     doc.fillColor(muted).font("Helvetica").fontSize(8).text("This is a computer-generated invoice and does not require a signature.", 42, 770, { width: 510, align: "center" });
-    doc.fillColor(blue).font("Helvetica-Bold").text("support@shipsy.in  |  shipsy.in", 42, 792, { width: 510, align: "center" });
+    doc.fillColor(blue).font("Helvetica-Bold").text("pkmmittal97@gmail.com  |  goshipsy.in", 42, 792, { width: 510, align: "center" });
   }
   doc.end();
   return completed;
@@ -355,7 +509,7 @@ async function manifestPdf(orders) {
   doc.fillColor(muted).font("Helvetica").fontSize(8).text("Seller / Warehouse signature", 40, signY + 9, { width: 180, align: "center" }).text("Courier executive signature", 375, signY + 9, { width: 180, align: "center" });
   doc.fillColor(ink).font("Helvetica-Bold").fontSize(9).text("Handover declaration", 40, signY + 45);
   doc.fillColor(muted).font("Helvetica").fontSize(8).text("The shipments listed above were handed over in sealed condition. The courier representative verified the shipment count at pickup.", 40, signY + 61, { width: 515, lineGap: 3 });
-  doc.fillColor(blue).font("Helvetica-Bold").fontSize(8).text("support@shipsy.in  |  shipsy.in", 40, 795, { width: 515, align: "center" });
+  doc.fillColor(blue).font("Helvetica-Bold").fontSize(8).text("pkmmittal97@gmail.com  |  goshipsy.in", 40, 795, { width: 515, align: "center" });
   doc.end();
   return completed;
 }

@@ -794,8 +794,8 @@ export function Footer() {
           </div>
           <address className="footer-contact">
             <a href="tel:+917454952149">+91 74549 52149</a>
-            <a href="mailto:bilalsayyed1235@gmail.com">
-              bilalsayyed1235@gmail.com
+            <a href="mailto:pkmmittal97@gmail.com">
+              pkmmittal97@gmail.com
             </a>
             <span>NUZHAT ENTERPRISES</span>
             <span>

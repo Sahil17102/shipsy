@@ -8,6 +8,7 @@ module.exports = {
         NODE_ENV: "production",
         PORT: "5014",
         DATA_DIR: "/opt/goshipsy/shared/data",
+        DOTENV_CONFIG_PATH: "/opt/goshipsy/shared/runtime.env",
         ALLOWED_ORIGINS: "https://goshipsy.in,https://www.goshipsy.in,https://admin.goshipsy.in",
       },
     },

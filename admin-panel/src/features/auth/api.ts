@@ -1,13 +1,13 @@
-import { setAccessToken } from "@/lib/api";
+import { api, setAccessToken } from "@/lib/api";
 import { seedAdmin, STATIC_ADMIN_KEY } from "@/lib/staticSeeds";
 import type { User } from "./types";
 
 const DEMO_ADMIN: User = {
   id: "demo-admin-user",
-  email: "admin@shipsy.in",
+  email: "pkmmittal97@gmail.com",
   phone: null,
-  name: "Demo Admin",
-  firstName: "Demo",
+  name: "ShipSy Admin",
+  firstName: "ShipSy",
   lastName: "Admin",
   role: "superadmin",
   designation: "Operations Lead",
@@ -28,9 +28,11 @@ function readAdmin(): User | null {
   }
 }
 
-function persistAdmin(user: User): User {
+const REMOTE_AUTH_ENABLED = import.meta.env.VITE_ADMIN_AUTH_ENABLED === "true";
+
+function persistAdmin(user: User, token = "static-admin-token"): User {
   localStorage.setItem(STATIC_ADMIN_KEY, JSON.stringify(user));
-  setAccessToken("static-admin-token");
+  setAccessToken(token);
   return user;
 }
 
@@ -45,6 +47,10 @@ export const authApi = {
     email: string;
     password: string;
   }): Promise<{ user: User }> => {
+    if (REMOTE_AUTH_ENABLED) {
+      const { data } = await api.post<{ user: User; token: string }>("/auth/login", params);
+      return { user: persistAdmin(data.user, data.token) };
+    }
     const seededAdmin = seedAdmin();
     const user = {
       ...seededAdmin,

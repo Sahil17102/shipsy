@@ -44,7 +44,7 @@ function defaultProfile(): ProfileResponse {
       phone: user.phone ?? "9876543210",
       businessName: "Shipsy Demo Store",
       website: "https://shipsy.in",
-      supportEmail: "support@shipsy.in",
+      supportEmail: "pkmmittal97@gmail.com",
       contactNumber: "9876543210",
       address: "DLF Cyber City, Sector 24",
       pincode: "122001",

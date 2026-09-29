@@ -604,7 +604,7 @@ function toProviderCreateOrderPayload(
     buyer_name: data.buyerName,
     buyer_mobile: data.buyerPhone,
     alternate_buyer_mobile: null,
-    buyer_email: data.buyerEmail || "support@shipsy.in",
+    buyer_email: data.buyerEmail || "pkmmittal97@gmail.com",
     buyer_address1: data.address,
     buyer_address2: data.address2 || "",
     invoice_number: firstInvoice?.invoiceNumber || data.orderId,

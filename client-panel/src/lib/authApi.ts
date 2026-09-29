@@ -7,10 +7,11 @@ import { shouldUseStaticClientData } from "./staticMode";
 const USER_STORAGE_KEY = "shipsy-client-user";
 const ACCOUNTS_STORAGE_KEY = "shipsy-client-accounts";
 const DEMO_OTP = "123456";
+const EMAIL_OTP_ENABLED = import.meta.env.VITE_EMAIL_OTP_ENABLED === "true";
 
 const DEMO_USER: User = {
   id: "demo-client-user",
-  email: "support@shipsy.in",
+  email: "pkmmittal97@gmail.com",
   phone: null,
   name: "Sahil Mittal",
   firstName: "Sahil",
@@ -121,11 +122,14 @@ export const authApi = {
 
   sendOtp: async (identifier: string): Promise<{ isNewUser: boolean }> => {
     const cleanIdentifier = identifier.trim();
-    if (cleanIdentifier.includes("@") && !shouldUseStaticClientData()) {
+    if (EMAIL_OTP_ENABLED && !cleanIdentifier.includes("@")) {
+      throw new Error("Enter a valid email address to receive an OTP.");
+    }
+    if (cleanIdentifier.includes("@") && (EMAIL_OTP_ENABLED || !shouldUseStaticClientData())) {
       const { data } = await api.post<{ isNewUser: boolean }>("/auth/send-otp", {
         identifier: cleanIdentifier,
       });
-      return data;
+      return { ...data, isNewUser: !findAccount(cleanIdentifier) };
     }
     return { isNewUser: !findAccount(cleanIdentifier) };
   },
@@ -134,9 +138,16 @@ export const authApi = {
     identifier: string;
     code: string;
   }): Promise<{ user: User; isNewUser: boolean }> => {
-    if (params.identifier.includes("@") && !shouldUseStaticClientData()) {
+    if (EMAIL_OTP_ENABLED && !params.identifier.includes("@")) {
+      throw new Error("Email OTP verification is required.");
+    }
+    if (params.identifier.includes("@") && (EMAIL_OTP_ENABLED || !shouldUseStaticClientData())) {
       const { data } = await api.post<{ user: User; isNewUser: boolean }>("/auth/verify-otp", params);
-      return { user: persistUser(data.user), isNewUser: data.isNewUser };
+      const existingUser = findAccount(params.identifier);
+      return {
+        user: persistUser(existingUser ?? data.user),
+        isNewUser: !existingUser,
+      };
     }
     if (params.code !== DEMO_OTP) {
       throw new Error("Invalid OTP. Use 123456 to sign in.");

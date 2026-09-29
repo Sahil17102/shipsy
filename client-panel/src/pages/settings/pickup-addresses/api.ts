@@ -56,7 +56,7 @@ function seedPickupAddress(): PickupAddress {
     nickname: "SHIPSY GLOBAL SOLUTIONS",
     contactName: "MAHENDRA SINGH",
     phone: "8860007910",
-    email: "support@shipsy.in",
+    email: "pkmmittal97@gmail.com",
     role: "warehouse_manager",
     landmark: "Near Lumax Sector 18",
     addressLine1: "MAHENDRA SINGH COMPOUND NEAR LUMAX SECTOR 18",

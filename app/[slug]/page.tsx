@@ -432,7 +432,7 @@ export default function InnerPage() {
             <Link
               href={
                 key === 'contact'
-                  ? 'mailto:bilalsayyed1235@gmail.com'
+                  ? 'mailto:pkmmittal97@gmail.com'
                   : '/contact'
               }
               className="btn-primary"
