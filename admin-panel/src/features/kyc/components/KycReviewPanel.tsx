@@ -60,6 +60,7 @@ export function KycReviewPanel({ userId }: KycReviewPanelProps) {
   const handleApproveAll = () => {
     approveMutation.mutate(kyc.id, {
       onSuccess: () => message.success("KYC approved successfully"),
+      onError: (error) => message.error(error.message || "Could not approve KYC"),
     });
   };
 
@@ -129,6 +130,7 @@ export function KycReviewPanel({ userId }: KycReviewPanelProps) {
                   size="small"
                   icon={<CheckCircle size={13} />}
                   loading={approveMutation.isPending}
+                  disabled={rejectMutation.isPending}
                   className="!rounded-lg !text-xs !font-medium !text-emerald-700 dark:!text-emerald-400 !border-emerald-300 dark:!border-emerald-700 hover:!bg-emerald-50 dark:hover:!bg-emerald-950/30 hover:!border-emerald-400"
                 >
                   Approve All
@@ -138,6 +140,7 @@ export function KycReviewPanel({ userId }: KycReviewPanelProps) {
                 size="small"
                 icon={<XCircle size={13} />}
                 onClick={() => setRejectModalOpen(true)}
+                disabled={approveMutation.isPending}
                 className="!rounded-lg !text-xs !font-medium !text-red-600 dark:!text-red-400 !border-red-300 dark:!border-red-700 hover:!bg-red-50 dark:hover:!bg-red-950/30 hover:!border-red-400"
               >
                 Reject All

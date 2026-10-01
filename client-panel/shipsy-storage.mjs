@@ -207,9 +207,23 @@ export function registerStorageRoutes(app, { dataDir }) {
     const all = kycStore.read();
     const userId = String(req.params.id).replace(/^kyc-/, "");
     const current = all[userId] || emptyKyc(userId);
+    if (documentKey && !DOCUMENT_KEY_SET.has(documentKey)) {
+      return res.status(400).json({ message: "Invalid KYC document type" });
+    }
+    const rejectionReason = status === "rejected"
+      ? String(req.body?.rejectionReason || "Rejected by admin")
+      : undefined;
+    const reviewedDocuments = documentKey
+      ? {}
+      : Object.fromEntries(DOCUMENT_KEYS.flatMap((key) => {
+        const document = current[key];
+        return document?.storageKey || document?.url
+          ? [[key, { ...document, status, rejectionReason }]]
+          : [];
+      }));
     const update = documentKey
-      ? { [documentKey]: { ...current[documentKey], status, rejectionReason: status === "rejected" ? String(req.body?.rejectionReason || "Rejected by admin") : undefined } }
-      : { status, rejectionReason: status === "rejected" ? String(req.body?.rejectionReason || "Rejected by admin") : undefined };
+      ? { [documentKey]: { ...current[documentKey], status, rejectionReason } }
+      : { ...reviewedDocuments, status, rejectionReason };
     const kyc = { ...current, ...update, updatedAt: new Date().toISOString() };
     all[userId] = kyc; kycStore.write(all);
     res.json({ success: true, kyc });

@@ -3,7 +3,9 @@ import { readStaticUsers, writeStaticUsers } from "@/lib/staticSeeds";
 import type { UserListItem } from "@/features/users/types";
 import type { AdminKycResponse, DocumentField, KycRecord, KycStatus } from "./types";
 
-const useStaticData = import.meta.env.VITE_R2_STORAGE_ENABLED !== "true";
+// Admin and client run on different origins, so production KYC must come from
+// the shared GoShipSy API unless demo/static mode is explicitly requested.
+const useStaticData = import.meta.env.VITE_R2_STORAGE_ENABLED === "false";
 const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "");
 const API_BASE_URL = (import.meta.env.VITE_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "");
 const APPROVED_DEMO_USER_ID = "client-sahilmittal1920@gmail.com";

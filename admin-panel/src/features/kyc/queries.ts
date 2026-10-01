@@ -19,7 +19,8 @@ export function useApproveKyc(userId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => adminKycApi.approve(id),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      queryClient.setQueryData([...ADMIN_KYC_QUERY_KEY, userId], data);
       queryClient.invalidateQueries({ queryKey: [...ADMIN_KYC_QUERY_KEY, userId] });
     },
   });
@@ -30,7 +31,8 @@ export function useRejectKyc(userId: string) {
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       adminKycApi.reject(id, reason),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      queryClient.setQueryData([...ADMIN_KYC_QUERY_KEY, userId], data);
       queryClient.invalidateQueries({ queryKey: [...ADMIN_KYC_QUERY_KEY, userId] });
     },
   });

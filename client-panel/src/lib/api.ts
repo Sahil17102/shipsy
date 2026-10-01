@@ -21,7 +21,7 @@ export function getAccessToken(): string | null {
 type SessionExpiredListener = () => void;
 let onSessionExpired: SessionExpiredListener | null = null;
 
-const DEFAULT_API_URL = "https://api.shipsy.in/api";
+const DEFAULT_API_URL = "https://api.goshipsy.in/api";
 const API_BASE_URL = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
 const USER_STORAGE_KEY = "shipsy-client-user";
 

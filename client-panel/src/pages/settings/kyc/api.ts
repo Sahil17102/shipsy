@@ -6,7 +6,9 @@ import { getRequiredDocuments } from "./config";
 import type { DocumentField, DocumentKey, KycRecord, KycResponse, KycSubmitPayload } from "./types";
 
 const USER_STORAGE_KEY = "shipsy-client-user";
-const useCloudStorage = import.meta.env.VITE_R2_STORAGE_ENABLED === "true";
+// Production KYC must be shared between the client and admin origins. Keep
+// cloud storage enabled unless a developer explicitly opts into demo mode.
+const useCloudStorage = import.meta.env.VITE_R2_STORAGE_ENABLED !== "false";
 const DOCUMENT_KEYS: DocumentKey[] = [
   "selfie",
   "panCard",
@@ -154,6 +156,61 @@ function makeMissingDocumentError(missingDocuments: DocumentKey[]): Error {
   return error;
 }
 
+function cachedDocumentFile(key: DocumentKey, field: DocumentField): Promise<File | null> {
+  if (!field.url?.startsWith("data:")) return Promise.resolve(null);
+  return fetch(field.url).then(async (response) => {
+    const blob = await response.blob();
+    const mime = blob.type || field.mime || "application/octet-stream";
+    const extension = mime === "application/pdf" ? "pdf" : mime.split("/")[1]?.replace("jpeg", "jpg") || "bin";
+    return new File([blob], `${key}.${extension}`, { type: mime });
+  });
+}
+
+async function migrateCachedKyc(cached: KycRecord, remote: KycRecord): Promise<KycResponse | null> {
+  // Once a server-side record has been submitted/reviewed it is authoritative.
+  // Replaying an older local submission here would turn an admin-approved KYC
+  // back into `pending` every time the seller opened the client panel.
+  if (remote.status !== "not_submitted") return null;
+
+  let latest = remote;
+  let migrated = false;
+
+  for (const key of DOCUMENT_KEYS) {
+    if (latest[key]?.url && latest[key]?.status !== "not_uploaded") continue;
+    const file = await cachedDocumentFile(key, cached[key]);
+    if (!file) continue;
+
+    const formData = new FormData();
+    formData.append("document", file);
+    formData.append("documentKey", key);
+    const { data } = await api.post("/kyc/upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    if (!isKycResponse(data)) throw new Error(`Could not migrate ${key} to secure storage.`);
+    latest = data.kyc;
+    migrated = true;
+  }
+
+  if (cached.status !== "not_submitted" && cached.businessStructure) {
+    const { data } = await api.post("/kyc", {
+      businessStructure: cached.businessStructure,
+      companyType: cached.companyType,
+      gstin: cached.gstin,
+      cin: cached.cin,
+    } satisfies KycSubmitPayload);
+    if (!isKycResponse(data)) throw new Error("Could not migrate the submitted KYC record.");
+    latest = data.kyc;
+    migrated = true;
+  }
+
+  if (!migrated) return null;
+  if (typeof window !== "undefined") {
+    localStorage.setItem(kycStorageKey(readCurrentUser()), JSON.stringify(latest));
+    mirrorCurrentSeller();
+  }
+  return { success: true, kyc: latest };
+}
+
 export const kycApi = {
   /** Fetch the current user's KYC record. Falls back to local demo KYC on static deploys. */
   get: async (): Promise<KycResponse> => {
@@ -163,7 +220,14 @@ export const kycApi = {
 
     try {
       const { data } = await api.get("/kyc");
-      return isKycResponse(data) ? data : { success: true, kyc: readStaticKyc() };
+      if (!isKycResponse(data)) return { success: true, kyc: readStaticKyc() };
+      const migrated = await migrateCachedKyc(readStaticKyc(), data.kyc);
+      if (migrated) return migrated;
+      if (typeof window !== "undefined") {
+        localStorage.setItem(kycStorageKey(readCurrentUser()), JSON.stringify(data.kyc));
+        mirrorCurrentSeller();
+      }
+      return data;
     } catch (error) {
       if (useCloudStorage) throw error;
       return { success: true, kyc: readStaticKyc() };
