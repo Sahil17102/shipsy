@@ -7,7 +7,7 @@ import PDFDocument from "pdfkit";
 import bwipjs from "bwip-js";
 import dotenv from "dotenv";
 import nodemailer from "nodemailer";
-import { registerStorageRoutes, shipsyObjectKey, putShipsyObject } from "./shipsy-storage.mjs";
+import { createSellerRegistry, registerStorageRoutes, shipsyObjectKey, putShipsyObject } from "./shipsy-storage.mjs";
 
 const app = express();
 const port = Number(process.env.PORT || 10000);
@@ -15,10 +15,14 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || path.join(root, ".env") });
 const providerOrdersFile = process.env.PROVIDER_ORDERS_FILE || path.join(process.env.DATA_DIR || root, "data", "provider-orders.json");
 const dataDir = process.env.DATA_DIR || path.join(root, "data");
+const sellerRegistry = createSellerRegistry(dataDir);
 
 app.disable("x-powered-by");
 app.use((req, res, next) => {
   const allowed = new Set([
+    "https://goshipsy.in",
+    "https://www.goshipsy.in",
+    "https://admin.goshipsy.in",
     "https://shipsy-client-wkxv.onrender.com",
     "https://shipsy-1admin.onrender.com",
     "http://localhost:5173",
@@ -77,20 +81,21 @@ function getMailTransport() {
   return mailTransport;
 }
 
-function publicUserForEmail(email) {
+function publicUserForEmail(email, existing = null) {
   return {
+    ...(existing || {}),
     id: `client-${email}`,
     email,
-    phone: null,
-    name: null,
-    firstName: null,
-    lastName: null,
+    phone: existing?.phone || null,
+    name: existing?.name || null,
+    firstName: existing?.firstName || null,
+    lastName: existing?.lastName || null,
     role: "user",
     teamRole: "owner",
     parentUserId: null,
     isVerified: true,
-    onboardingComplete: false,
-    hasPassword: false,
+    onboardingComplete: existing?.onboardingComplete === true,
+    hasPassword: existing?.hasPassword === true,
   };
 }
 
@@ -120,7 +125,7 @@ app.post("/api/auth/send-otp", async (req, res, next) => {
       html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:28px;color:#0f1f3d"><h2 style="margin:0 0 12px">ShipSy verification</h2><p>Use this one-time code to continue:</p><div style="font-size:32px;font-weight:700;letter-spacing:8px;color:#165dff;margin:24px 0">${code}</div><p>This code expires in 10 minutes.</p><p style="color:#667085;font-size:13px">If you did not request this code, you can safely ignore this email.</p></div>`,
     });
 
-    return res.json({ isNewUser: true, message: "OTP sent successfully." });
+    return res.json({ isNewUser: !sellerRegistry.findByEmail(email), message: "OTP sent successfully." });
   } catch (error) {
     next(error);
   }
@@ -146,7 +151,10 @@ app.post("/api/auth/verify-otp", (req, res, next) => {
       return res.status(400).json({ message: "Invalid OTP." });
     }
     otpStore.delete(email);
-    return res.json({ user: publicUserForEmail(email), isNewUser: true });
+    const existing = sellerRegistry.findByEmail(email);
+    const user = publicUserForEmail(email, existing);
+    sellerRegistry.upsert(user);
+    return res.json({ user, isNewUser: !existing });
   } catch (error) {
     next(error);
   }
@@ -353,6 +361,45 @@ app.post("/api/providers/delhivery/pickup-request", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post("/api/providers/delhivery/cancel-order", async (req, res, next) => {
+  try {
+    const waybill = String(req.body?.waybill || "").trim();
+    if (!/^\d{8,}$/.test(waybill)) return res.status(400).json({ message: "A valid Delhivery waybill is required" });
+    const response = await fetch("https://track.delhivery.com/api/p/edit", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Token ${requireEnv("DELHIVERY_TOKEN")}`,
+      },
+      body: JSON.stringify({ waybill, cancellation: "true" }),
+    });
+    const { body, contentType } = await readUpstream(response);
+    const rejected = body && typeof body === "object" && (body.status === false || body.success === false || body.error === true);
+    if (!response.ok || rejected) {
+      return res.status(response.ok ? 400 : response.status).type(contentType || "application/json").send(body);
+    }
+    return res.status(response.status).type(contentType || "application/json").send(body);
+  } catch (error) { next(error); }
+});
+
+app.get("/api/providers/delhivery/track", async (req, res, next) => {
+  try {
+    const waybill = String(req.query?.waybill || "").trim();
+    if (!/^\d{8,}$/.test(waybill)) return res.status(400).json({ message: "A valid Delhivery waybill is required" });
+    const target = new URL("https://track.delhivery.com/api/v1/packages/json/");
+    target.searchParams.set("waybill", waybill);
+    const response = await fetch(target, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Token ${requireEnv("DELHIVERY_TOKEN")}`,
+      },
+    });
+    const { body, contentType } = await readUpstream(response);
+    return res.status(response.status).type(contentType || "application/json").send(body);
+  } catch (error) { next(error); }
+});
+
 app.get("/api/provider-orders", (_req, res) => {
   res.json({ orders: [...providerOrders.values()] });
 });
@@ -365,13 +412,33 @@ app.post("/api/provider-orders", (req, res) => {
   return res.status(201).json({ order });
 });
 
-app.post("/api/provider-orders/:id/cancel", (req, res) => {
-  const order = findProviderOrder(req.params.id);
-  if (!order) return res.status(404).json({ message: "Provider order not found" });
-  const updated = { ...order, status: "cancelled", cancellationReason: String(req.body?.reason || "Cancelled by admin"), cancelledAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-  providerOrders.set(String(order.id), updated);
-  persistProviderOrders();
-  return res.json({ order: updated });
+app.post("/api/provider-orders/:id/cancel", async (req, res, next) => {
+  try {
+    const order = findProviderOrder(req.params.id);
+    if (!order) return res.status(404).json({ message: "Provider order not found" });
+    if (String(order.serviceProvider || "").toLowerCase() === "delhivery") {
+      const waybill = String(order.awb || "").trim();
+      if (!waybill) return res.status(400).json({ message: "Delhivery AWB is missing; shipment was not cancelled" });
+      const response = await fetch("https://track.delhivery.com/api/p/edit", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Token ${requireEnv("DELHIVERY_TOKEN")}`,
+        },
+        body: JSON.stringify({ waybill, cancellation: "true" }),
+      });
+      const { body, contentType } = await readUpstream(response);
+      const rejected = body && typeof body === "object" && (body.status === false || body.success === false || body.error === true);
+      if (!response.ok || rejected) {
+        return res.status(response.ok ? 400 : response.status).type(contentType || "application/json").send(body);
+      }
+    }
+    const updated = { ...order, status: "cancelled", cancellationReason: String(req.body?.reason || "Cancelled by admin"), cancelledAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    providerOrders.set(String(order.id), updated);
+    persistProviderOrders();
+    return res.json({ order: updated });
+  } catch (error) { next(error); }
 });
 
 app.post("/api/provider-orders/pickup-initiated", (req, res) => {
@@ -545,7 +612,7 @@ app.post("/api/provider-orders/manifest", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-registerStorageRoutes(app, { dataDir });
+registerStorageRoutes(app, { dataDir, sellerRegistry });
 
 app.get("/", (_req, res) => res.json({ service: "goshipsy-api", ok: true }));
 app.get("/api/health", (_req, res) => res.json({ service: "goshipsy-api", ok: true }));

@@ -112,6 +112,63 @@ function jsonStore(dataDir, name, fallback) {
   return { read, write };
 }
 
+function normalizedSellerEmail(value) {
+  const email = String(value || "").trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+export function createSellerRegistry(dataDir) {
+  const store = jsonStore(dataDir, "sellers.json", []);
+
+  function list() {
+    const records = store.read();
+    return Array.isArray(records) ? records : [];
+  }
+
+  function findByEmail(email) {
+    const normalized = normalizedSellerEmail(email);
+    return normalized
+      ? list().find((seller) => normalizedSellerEmail(seller?.email) === normalized) || null
+      : null;
+  }
+
+  function upsert(record) {
+    const email = normalizedSellerEmail(record?.email);
+    const requestedId = String(record?.id || "").trim();
+    if (!email && !requestedId) throw Object.assign(new Error("seller.id or seller.email is required"), { status: 400 });
+
+    const canonicalId = email ? `client-${email}` : requestedId;
+    const records = list();
+    const matches = records.filter((seller) =>
+      String(seller?.id || "") === canonicalId ||
+      (email && normalizedSellerEmail(seller?.email) === email),
+    );
+    const current = Object.assign({}, ...matches);
+    const next = {
+      ...current,
+      ...record,
+      id: canonicalId,
+      email: email || record.email || null,
+      createdAt: current.createdAt || record.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    if (current.planAssignedByAdmin === true && record.planAssignedByAdmin !== true) {
+      next.plan = current.plan;
+      next.planAssignedByAdmin = true;
+    }
+    store.write([
+      next,
+      ...records.filter((seller) =>
+        String(seller?.id || "") !== canonicalId &&
+        (!email || normalizedSellerEmail(seller?.email) !== email),
+      ),
+    ]);
+    return next;
+  }
+
+  return { list, findByEmail, upsert };
+}
+
 function requestUser(req) {
   return safePart(req.get("x-shipsy-user-id") || req.get("x-shipsy-user-email") || "anonymous");
 }
@@ -135,10 +192,25 @@ function attachmentMeta(file, key) {
   return { id: crypto.randomUUID(), name: file.originalname, contentType: file.mimetype, size: file.size, storageKey: key };
 }
 
-export function registerStorageRoutes(app, { dataDir }) {
+export function registerStorageRoutes(app, { dataDir, sellerRegistry = createSellerRegistry(dataDir) }) {
   const kycStore = jsonStore(dataDir, "kyc.json", {});
   const labelStore = jsonStore(dataDir, "label-settings.json", {});
   const ticketStore = jsonStore(dataDir, "support-tickets.json", []);
+
+  app.get("/api/sellers", (_req, res) => {
+    const kycRecords = kycStore.read();
+    const users = sellerRegistry.list().map((seller) => ({
+      ...seller,
+      kycStatus: kycRecords[seller.id]?.status || seller.kycStatus || "not_submitted",
+    }));
+    res.json({ users });
+  });
+
+  app.post("/api/sellers", (req, res, next) => {
+    try {
+      res.status(201).json({ user: sellerRegistry.upsert(req.body?.seller) });
+    } catch (error) { next(error); }
+  });
 
   app.get("/api/storage/health", async (_req, res, next) => {
     const key = shipsyObjectKey("healthchecks", `check-${crypto.randomUUID()}.txt`);

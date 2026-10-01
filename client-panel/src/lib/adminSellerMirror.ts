@@ -4,7 +4,7 @@ export const ADMIN_STATIC_USERS_KEY = "shipsy-static-users";
 export const CLIENT_COMPANY_PROFILE_KEY = "shipsy-client-company-profile";
 export const CLIENT_KYC_KEY = "shipsy-client-kyc";
 export const DEMO_APPROVED_KYC_EMAIL = "sahilmittal1920@gmail.com";
-const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
+const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "");
 
 type ClientCompanyProfile = {
   businessName?: string | null;
@@ -102,7 +102,11 @@ export function mirrorClientSellerToAdmin(user: User, profile?: ClientCompanyPro
   const savedProfile = profile ?? readJson<ClientCompanyProfile | null>(CLIENT_COMPANY_PROFILE_KEY, null);
   const kycStatus = readKycStatus(user);
   const sellers = readJson<AdminSeller[]>(ADMIN_STATIC_USERS_KEY, []);
-  const current = sellers.find((seller) => seller.id === user.id);
+  const normalizedEmail = user.email?.trim().toLowerCase() || null;
+  const current = sellers.find((seller) =>
+    seller.id === user.id ||
+    (normalizedEmail && seller.email?.trim().toLowerCase() === normalizedEmail),
+  );
   const now = new Date().toISOString();
 
   const nextSeller: AdminSeller = {
@@ -132,6 +136,12 @@ export function mirrorClientSellerToAdmin(user: User, profile?: ClientCompanyPro
     updatedAt: now,
   };
 
-  writeJson(ADMIN_STATIC_USERS_KEY, [nextSeller, ...sellers.filter((seller) => seller.id !== user.id)]);
+  writeJson(ADMIN_STATIC_USERS_KEY, [
+    nextSeller,
+    ...sellers.filter((seller) =>
+      seller.id !== user.id &&
+      (!normalizedEmail || seller.email?.trim().toLowerCase() !== normalizedEmail),
+    ),
+  ]);
   syncSellerToSharedApi(nextSeller);
 }

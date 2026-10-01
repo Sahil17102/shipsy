@@ -7,7 +7,9 @@ import { shouldUseStaticClientData } from "./staticMode";
 const USER_STORAGE_KEY = "shipsy-client-user";
 const ACCOUNTS_STORAGE_KEY = "shipsy-client-accounts";
 const DEMO_OTP = "123456";
-const EMAIL_OTP_ENABLED = import.meta.env.VITE_EMAIL_OTP_ENABLED === "true";
+// Email OTP is the production authentication path. Keep it enabled unless a
+// developer explicitly opts into the legacy static/demo OTP flow.
+const EMAIL_OTP_ENABLED = import.meta.env.VITE_EMAIL_OTP_ENABLED !== "false";
 
 const DEMO_USER: User = {
   id: "demo-client-user",
@@ -70,7 +72,13 @@ function findAccount(identifier: string): User | null {
 
 function saveAccount(user: User): void {
   const accounts = readAccounts();
-  const next = accounts.filter((account) => account.id !== user.id);
+  const email = user.email ? normalizeIdentifier(user.email) : null;
+  const phone = user.phone ? normalizeIdentifier(user.phone) : null;
+  const next = accounts.filter((account) =>
+    account.id !== user.id &&
+    (!email || !account.email || normalizeIdentifier(account.email) !== email) &&
+    (!phone || !account.phone || normalizeIdentifier(account.phone) !== phone),
+  );
   next.push(user);
   localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(next));
 }
@@ -144,8 +152,15 @@ export const authApi = {
     if (params.identifier.includes("@") && (EMAIL_OTP_ENABLED || !shouldUseStaticClientData())) {
       const { data } = await api.post<{ user: User; isNewUser: boolean }>("/auth/verify-otp", params);
       const existingUser = findAccount(params.identifier);
+      const canonicalUser = existingUser
+        ? {
+            ...existingUser,
+            ...data.user,
+            onboardingComplete: existingUser.onboardingComplete || data.user.onboardingComplete,
+          }
+        : data.user;
       return {
-        user: persistUser(existingUser ?? data.user),
+        user: persistUser(canonicalUser),
         isNewUser: !existingUser,
       };
     }

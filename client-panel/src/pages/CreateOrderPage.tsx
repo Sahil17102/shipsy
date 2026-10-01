@@ -126,7 +126,7 @@ function MobileBottomBar({
 
 export function CreateOrderPage() {
   const navigate = useNavigate();
-  const { data: kyc, isLoading: isKycLoading } = useKyc();
+  const { data: kyc, isLoading: isKycLoading, isFetching: isKycFetching } = useKyc();
   const createOrderMutation = useCreateOrder();
   const [currentStep, setCurrentStep] = useState(1);
   const availableCouriersRef = useRef<AvailableCourier[]>([]);
@@ -436,7 +436,7 @@ export function CreateOrderPage() {
         : undefined;
 
   // ── KYC Gate ──
-  if (isKycLoading) {
+  if (isKycLoading || isKycFetching) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Loader2 className="w-6 h-6 animate-spin text-muted" />

@@ -11,7 +11,7 @@ import type {
 } from "./types";
 
 const useStaticData = import.meta.env.PROD || import.meta.env.VITE_STATIC_DATA_ENABLED !== "false";
-const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://shipsy-kyio.onrender.com/api").replace(/\/$/, "");
+const SHARED_API_BASE_URL = (import.meta.env.VITE_SHARED_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "");
 const KYC_STATUSES = ["not_submitted", "pending", "approved", "rejected"] as const;
 const STATIC_TEAM_MEMBERS_KEY = "shipsy-static-team-members";
 
@@ -106,8 +106,28 @@ function normalizeUser(raw: unknown): UserListItem {
 }
 
 function mergeUsers(localUsers: UserListItem[], sharedUsers: UserListItem[]): UserListItem[] {
-  const users = new Map(localUsers.map((user) => [user.id, normalizeUser(user)]));
-  sharedUsers.forEach((user) => users.set(user.id, normalizeUser(user)));
+  const seededIds = new Set(["seller-deoband-bazaar", "shipsy-demo-seller"]);
+  const statusRank: Record<UserListItem["kycStatus"], number> = {
+    not_submitted: 0,
+    rejected: 1,
+    pending: 2,
+    approved: 3,
+  };
+  const score = (user: UserListItem) =>
+    (seededIds.has(user.id) ? 0 : 100) +
+    statusRank[user.kycStatus] * 10 +
+    (user.onboardingComplete ? 2 : 0) +
+    (user.isVerified ? 1 : 0);
+  const users = new Map<string, UserListItem>();
+  [...localUsers, ...sharedUsers].map(normalizeUser).forEach((user) => {
+    const email = user.email?.trim().toLowerCase();
+    const key = email ? `email:${email}` : `id:${user.id}`;
+    const current = users.get(key);
+    if (!current || score(user) > score(current) ||
+      (score(user) === score(current) && user.updatedAt > current.updatedAt)) {
+      users.set(key, user);
+    }
+  });
   return Array.from(users.values()).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
