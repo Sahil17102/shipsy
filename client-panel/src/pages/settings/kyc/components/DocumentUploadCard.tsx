@@ -20,6 +20,8 @@ import type { DocumentField, DocumentKey } from "../types";
 interface DocumentUploadCardProps {
   documentKey: DocumentKey;
   field: DocumentField;
+  optional?: boolean;
+  allowReplace?: boolean;
 }
 
 const STATUS_CONFIG = {
@@ -56,6 +58,8 @@ const STATUS_CONFIG = {
 export function DocumentUploadCard({
   documentKey,
   field,
+  optional = false,
+  allowReplace = false,
 }: DocumentUploadCardProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -109,7 +113,7 @@ export function DocumentUploadCard({
 
   const isSelfie = documentKey === "selfie";
   const canUpload =
-    !isSelfie && (status === "not_uploaded" || status === "rejected");
+    !isSelfie && (allowReplace || status === "not_uploaded" || status === "rejected");
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -163,9 +167,16 @@ export function DocumentUploadCard({
           </div>
 
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground truncate">
-              {label}
-            </p>
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="text-sm font-semibold text-foreground truncate">
+                {label}
+              </p>
+              {optional && (
+                <span className="shrink-0 rounded-full bg-surface-muted px-2 py-0.5 text-[10px] font-semibold text-muted">
+                  Optional
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1.5 mt-0.5">
               <StatusIcon className={`w-3.5 h-3.5 ${config.color}`} />
               <span className={`text-xs font-medium ${config.color}`}>
@@ -216,7 +227,7 @@ export function DocumentUploadCard({
                 ) : (
                   <Upload className="w-3.5 h-3.5" />
                 )}
-                {status === "rejected" ? "Re-upload" : "Upload"}
+                {status === "not_uploaded" ? "Upload" : "Re-upload"}
               </button>
             </>
           )}

@@ -30,14 +30,13 @@ export const DOCUMENT_ACCEPT: Record<DocumentKey, string> = {
 
 /** Required documents per business structure */
 export const REQUIRED_DOCUMENTS: Record<BusinessStructure, DocumentKey[]> = {
-  individual: ["selfie", "panCard", "aadhaar", "cancelledCheque"],
-  sole_proprietor: ["selfie", "panCard", "aadhaar", "cancelledCheque", "gstCertificate"],
+  individual: ["selfie", "panCard", "aadhaar"],
+  sole_proprietor: ["selfie", "panCard", "aadhaar", "gstCertificate"],
   partnership_firm: [
     "selfie",
     "partnershipDeed",
     "panCard",
     "aadhaar",
-    "cancelledCheque",
     "gstCertificate",
   ],
   company: [], // resolved by company type
@@ -47,17 +46,19 @@ export const REQUIRED_DOCUMENTS: Record<BusinessStructure, DocumentKey[]> = {
 export const COMPANY_REQUIRED_DOCUMENTS: Record<CompanyType, DocumentKey[]> = {
   private_limited: ["selfie", "businessPan", "aadhaar", "boardResolution", "gstCertificate"],
   public_limited: ["selfie", "businessPan", "aadhaar", "gstCertificate"],
-  one_person_company: ["selfie", "businessPan", "aadhaar", "companyAddressProof", "cancelledCheque"],
-  llp: ["selfie", "businessPan", "aadhaar", "companyAddressProof", "cancelledCheque", "llpAgreement"],
+  one_person_company: ["selfie", "businessPan", "aadhaar", "companyAddressProof"],
+  llp: ["selfie", "businessPan", "aadhaar", "companyAddressProof", "llpAgreement"],
   section_8_company: [
     "selfie",
     "businessPan",
     "aadhaar",
     "companyAddressProof",
     "boardResolution",
-    "cancelledCheque",
   ],
 };
+
+/** Optional documents are offered in the KYC form but never block submission. */
+export const OPTIONAL_DOCUMENTS: DocumentKey[] = ["cancelledCheque"];
 
 /** Get required documents for the given structure + company type */
 export function getRequiredDocuments(
@@ -68,6 +69,17 @@ export function getRequiredDocuments(
     return COMPANY_REQUIRED_DOCUMENTS[companyType] || [];
   }
   return REQUIRED_DOCUMENTS[structure] || [];
+}
+
+/** Documents displayed for a KYC, including optional uploads. */
+export function getKycDocuments(
+  structure: BusinessStructure,
+  companyType?: CompanyType,
+): DocumentKey[] {
+  return Array.from(new Set([
+    ...getRequiredDocuments(structure, companyType),
+    ...OPTIONAL_DOCUMENTS,
+  ]));
 }
 
 /** Options for the business structure select */

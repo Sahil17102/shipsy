@@ -16,14 +16,14 @@ const DOCUMENT_KEYS = [
 ];
 const DOCUMENT_KEY_SET = new Set(DOCUMENT_KEYS);
 const REQUIRED_DOCUMENTS = {
-  individual: ["selfie", "panCard", "aadhaar", "cancelledCheque"],
-  sole_proprietor: ["selfie", "panCard", "aadhaar", "cancelledCheque", "gstCertificate"],
-  partnership_firm: ["selfie", "partnershipDeed", "panCard", "aadhaar", "cancelledCheque", "gstCertificate"],
+  individual: ["selfie", "panCard", "aadhaar"],
+  sole_proprietor: ["selfie", "panCard", "aadhaar", "gstCertificate"],
+  partnership_firm: ["selfie", "partnershipDeed", "panCard", "aadhaar", "gstCertificate"],
   private_limited: ["selfie", "businessPan", "aadhaar", "boardResolution", "gstCertificate"],
   public_limited: ["selfie", "businessPan", "aadhaar", "gstCertificate"],
-  one_person_company: ["selfie", "businessPan", "aadhaar", "companyAddressProof", "cancelledCheque"],
-  llp: ["selfie", "businessPan", "aadhaar", "companyAddressProof", "cancelledCheque", "llpAgreement"],
-  section_8_company: ["selfie", "businessPan", "aadhaar", "companyAddressProof", "boardResolution", "cancelledCheque"],
+  one_person_company: ["selfie", "businessPan", "aadhaar", "companyAddressProof"],
+  llp: ["selfie", "businessPan", "aadhaar", "companyAddressProof", "llpAgreement"],
+  section_8_company: ["selfie", "businessPan", "aadhaar", "companyAddressProof", "boardResolution"],
 };
 
 const maxUploadBytes = Number(process.env.MAX_UPLOAD_BYTES || 15 * 1024 * 1024);
@@ -179,7 +179,12 @@ export function registerStorageRoutes(app, { dataDir }) {
       await putShipsyObject(key, req.file.buffer, req.file.mimetype, { userId, documentKey });
       const all = kycStore.read();
       const current = all[userId] || emptyKyc(userId);
-      const kyc = { ...current, [documentKey]: { url: publicObjectUrl(key), status: "pending", mime: req.file.mimetype, storageKey: key }, updatedAt: new Date().toISOString() };
+      const kyc = {
+        ...current,
+        status: current.status === "approved" ? "pending" : current.status,
+        [documentKey]: { url: publicObjectUrl(key), status: "pending", mime: req.file.mimetype, storageKey: key },
+        updatedAt: new Date().toISOString(),
+      };
       all[userId] = kyc; kycStore.write(all);
       res.json({ success: true, kyc });
     } catch (error) { next(error); }

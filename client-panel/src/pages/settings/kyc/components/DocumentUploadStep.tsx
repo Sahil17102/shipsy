@@ -13,7 +13,7 @@ import {
   documentDetailsSchema,
   type DocumentDetailsFormValues,
 } from "../schema";
-import { getRequiredDocuments, needsGstin, needsCin } from "../config";
+import { getKycDocuments, getRequiredDocuments, needsGstin, needsCin } from "../config";
 import { useSubmitKyc } from "../queries";
 import { DocumentUploadCard } from "./DocumentUploadCard";
 import type { KycRecord, BusinessStructure, CompanyType } from "../types";
@@ -48,6 +48,7 @@ export function DocumentUploadStep({
   });
 
   const requiredDocs = getRequiredDocuments(businessStructure, companyType);
+  const displayedDocs = getKycDocuments(businessStructure, companyType);
   const showGstin = needsGstin(businessStructure);
   const showCin = needsCin(businessStructure, companyType);
 
@@ -103,13 +104,15 @@ export function DocumentUploadStep({
         <div className="p-5 sm:p-6">
           {/* Document cards grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {requiredDocs
+            {displayedDocs
               .filter((key) => key !== "selfie")
               .map((key) => (
                 <DocumentUploadCard
                   key={key}
                   documentKey={key}
                   field={kyc[key]}
+                  optional={!requiredDocs.includes(key)}
+                  allowReplace
                 />
               ))}
           </div>

@@ -8,7 +8,7 @@ import { BusinessStructureStep } from "./components/BusinessStructureStep";
 import { SelfieStep } from "./components/SelfieStep";
 import { DocumentUploadStep } from "./components/DocumentUploadStep";
 import { KycStatusBanner } from "./components/KycStatusBanner";
-import { getRequiredDocuments } from "./config";
+import { getKycDocuments, getRequiredDocuments } from "./config";
 import { DocumentUploadCard } from "./components/DocumentUploadCard";
 import { ThemedTour } from "@/components/common/ThemedTour";
 import {
@@ -61,6 +61,9 @@ export default function KycPage() {
   // Sync from server data on load
   const effectiveStructure = businessStructure || kyc?.businessStructure;
   const effectiveCompanyType = companyType || kyc?.companyType;
+  const requiredDocuments = effectiveStructure
+    ? getRequiredDocuments(effectiveStructure, effectiveCompanyType)
+    : [];
 
   const handleBusinessStructureNext = useCallback(
     (data: BusinessStructureFormValues) => {
@@ -145,7 +148,7 @@ export default function KycPage() {
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {effectiveStructure &&
-                  getRequiredDocuments(
+                  getKycDocuments(
                     effectiveStructure,
                     effectiveCompanyType,
                   ).map((key: DocumentKey) => (
@@ -153,6 +156,8 @@ export default function KycPage() {
                       key={key}
                       documentKey={key}
                       field={kyc[key]}
+                      optional={!requiredDocuments.includes(key)}
+                      allowReplace
                     />
                   ))}
               </div>
@@ -192,7 +197,7 @@ export default function KycPage() {
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {effectiveStructure &&
-                  getRequiredDocuments(
+                  getKycDocuments(
                     effectiveStructure,
                     effectiveCompanyType,
                   ).map((key: DocumentKey) => (
@@ -200,6 +205,8 @@ export default function KycPage() {
                       key={key}
                       documentKey={key}
                       field={kyc[key]}
+                      optional={!requiredDocuments.includes(key)}
+                      allowReplace
                     />
                   ))}
               </div>

@@ -302,6 +302,7 @@ export const kycApi = {
 
     return writeStaticKyc({
       ...current,
+      status: current.status === "approved" ? "pending" : current.status,
       [key]: {
         url: dataUrl,
         status: "pending",
