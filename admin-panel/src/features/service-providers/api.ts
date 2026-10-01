@@ -149,9 +149,58 @@ function delhiveryCredentials(): ProviderCredentialsResponse {
   };
 }
 
+function indiaPostCredentials(): ProviderCredentialsResponse {
+  const fields: CredentialFieldDef[] = [
+    { key: "environment", label: "Environment (sandbox/production)", type: "text", required: true },
+    { key: "baseUrl", label: "API Base URL", type: "text", required: true },
+    { key: "username", label: "API Username", type: "text", required: true },
+    { key: "password", label: "API Password", type: "password", required: true },
+    { key: "customerId", label: "Customer ID (10 digits)", type: "text", required: true },
+    { key: "speedPostContractId", label: "Speed Post Contract ID", type: "text", required: true },
+    { key: "businessParcelContractId", label: "Business Parcel Contract ID", type: "text", required: false },
+    { key: "defaultOfficeId", label: "Drop-off Office ID (8 digits)", type: "text", required: true },
+    { key: "defaultOfficeName", label: "Drop-off Office Name", type: "text", required: false },
+    { key: "defaultPincode", label: "Drop-off Pincode", type: "text", required: true },
+    { key: "barcodePrefix", label: "Allocated Barcode Prefix", type: "text", required: true },
+    { key: "nextBarcodeSerial", label: "Next Barcode Serial (8 digits)", type: "text", required: true },
+  ];
+  const values = {
+    environment: "sandbox",
+    baseUrl: "https://test.cept.gov.in/beextcustomer",
+    username: "",
+    password: "",
+    customerId: "9999605907",
+    speedPostContractId: "41585456",
+    businessParcelContractId: "41367422",
+    defaultOfficeId: "",
+    defaultOfficeName: "",
+    defaultPincode: "",
+    barcodePrefix: "ET",
+    nextBarcodeSerial: "21433001",
+  };
+  return {
+    b2c: { fields, description: "Secure India Post tariff, booking, tracking and label credentials. Use sandbox until India Post approves production access.", values },
+    b2b: { fields, description: "Uses the same India Post account and contracts.", values, sameAsB2c: true },
+  };
+}
+
 function defaultSeedProviders(): ProviderListItem[] {
   const updatedAt = nowIso();
   return [
+    {
+      id: "sp-india-post",
+      serviceProvider: "india-post",
+      displayName: "India Post",
+      logoUrl: "",
+      totalCouriers: 2,
+      enabledCouriers: 2,
+      serviceProviderDisplayName: "India Post",
+      isEnabled: true,
+      b2c: { configured: false },
+      b2b: { configured: false, sameAsB2c: true },
+      status: "active",
+      updatedAt,
+    },
     {
       id: "sp-delhivery",
       serviceProvider: "delhivery",
@@ -219,7 +268,9 @@ function writeStaticProviders(providers: ProviderListItem[]): ProviderListItem[]
 function readStaticCredentials(providerId: string): ProviderCredentialsResponse {
   const all = readJson<Record<string, ProviderCredentialsResponse>>(STATIC_SERVICE_PROVIDER_CREDS_KEY, {});
   const fallback =
-    providerId === "sp-delhivery"
+    providerId === "sp-india-post"
+      ? indiaPostCredentials()
+      : providerId === "sp-delhivery"
       ? delhiveryCredentials()
       : providerId === "sp-logixmitra"
         ? logixMitraCredentials()

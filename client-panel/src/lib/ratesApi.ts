@@ -12,6 +12,7 @@ import {
   shouldUseFshipApi,
   type FshipShipmentRate,
 } from "./fshipApi";
+import { indiaPostApi } from "./indiaPostApi";
 
 export interface DelhiveryRate {
   total_amount: number;
@@ -588,6 +589,40 @@ async function getFshipRates(params: AvailableCouriersParams): Promise<Available
   });
 }
 
+async function getIndiaPostRates(params: AvailableCouriersParams): Promise<AvailableCourier[]> {
+  const status = await indiaPostApi.status();
+  if (!status.configured || params.orderType === "B2B") return [];
+  const products = status.products || ["speed-post"];
+  const results = await Promise.all(products.map(async (product): Promise<AvailableCourier | null> => {
+    try {
+      const response = await indiaPostApi.rate({ product, ...params });
+      const total = Number(response.total || 0);
+      if (!(total > 0)) return null;
+      const speedPost = product === "speed-post";
+      return {
+        courierId: `india-post:${product}`,
+        name: speedPost ? "India Post Speed Post" : "India Post Business Parcel",
+        serviceProvider: "india-post",
+        serviceProviderDisplayName: "India Post",
+        logo: null,
+        mode: "surface" as const,
+        zone: { code: "INDIA-POST", name: "India Post Live Tariff" },
+        chargeableWeight: Math.max(1, params.weight),
+        minWeight: 1,
+        rate: { forward: total, rto: 0, codCharges: 0, otherCharges: 0, freightCharge: total, totalCharge: total },
+      } satisfies AvailableCourier;
+    } catch {
+      return null;
+    }
+  }));
+  return results.filter((item): item is AvailableCourier => item !== null);
+}
+
+function mergeIndiaPostRates(couriers: AvailableCourier[], indiaPost: AvailableCourier[]): AvailableCourier[] {
+  const seen = new Set(couriers.map((item) => item.courierId));
+  return [...couriers, ...indiaPost.filter((item) => !seen.has(item.courierId))];
+}
+
 async function getFshipB2bRates(params: B2bAvailableCouriersParams): Promise<B2bAvailableCourier[]> {
   const totalWeight = round(params.packages.reduce((sum, pkg) => sum + (pkg.weight || 0), 0), 3);
   const maxLength = Math.max(...params.packages.map((pkg) => pkg.length || 0), 0);
@@ -669,20 +704,21 @@ export const ratesApi = {
     params: AvailableCouriersParams,
   ): Promise<AvailableCourier[]> => {
     const sharedCouriers = await getSharedCouriers("b2c");
+    const indiaPostRates = await getIndiaPostRates(params).catch(() => []);
     if (shouldUseCourierApi()) {
       try {
         const couriers = await getCourierApiRates(params);
         if (couriers.length > 0) {
           const seen = new Set(couriers.map((item) => item.courierId));
-          return [
+          return mergeIndiaPostRates([
             ...couriers,
             ...makeFallbackB2cRates(params, sharedCouriers).filter((item) => !seen.has(item.courierId)),
-          ];
+          ], indiaPostRates);
         }
       } catch {
         // Keep courier selection usable on static deploys even before the courier token is present.
       }
-      return makeFallbackB2cRates(params, sharedCouriers);
+      return mergeIndiaPostRates(makeFallbackB2cRates(params, sharedCouriers), indiaPostRates);
     }
 
     if (shouldUseFshipApi()) {
@@ -692,16 +728,16 @@ export const ratesApi = {
           const fshipRates = await getFshipRates(params);
           if (fshipRates.length > 0) {
             const seen = new Set(fshipRates.map((item) => item.courierId));
-            return [
+            return mergeIndiaPostRates([
               ...fshipRates,
               ...fallbackRates.filter((item) => !seen.has(item.courierId)),
-            ];
+            ], indiaPostRates);
           }
         }
       } catch {
         // Keep order creation screen usable while credentials or CORS are being fixed.
       }
-      return fallbackRates;
+      return mergeIndiaPostRates(fallbackRates, indiaPostRates);
     }
 
     try {
@@ -713,15 +749,15 @@ export const ratesApi = {
         const seen = new Set(data.data.map((item) => item.courierId));
         const fshipRates = isFshipApiConfigured() ? await getFshipRates(params).catch(() => []) : [];
         fshipRates.forEach((item) => seen.add(item.courierId));
-        return [
+        return mergeIndiaPostRates([
           ...data.data,
           ...fshipRates,
           ...makeFallbackB2cRates(params, sharedCouriers).filter((item) => !seen.has(item.courierId)),
-        ];
+        ], indiaPostRates);
       }
-      return makeFallbackB2cRates(params, sharedCouriers);
+      return mergeIndiaPostRates(makeFallbackB2cRates(params, sharedCouriers), indiaPostRates);
     } catch {
-      return makeFallbackB2cRates(params, sharedCouriers);
+      return mergeIndiaPostRates(makeFallbackB2cRates(params, sharedCouriers), indiaPostRates);
     }
   },
 

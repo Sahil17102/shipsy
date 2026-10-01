@@ -21,6 +21,7 @@ import {
   type FshipCreateForwardOrderPayload,
   type FshipTrackingResponse,
 } from "./fshipApi";
+import { indiaPostApi, makeIndiaPostOrder } from "./indiaPostApi";
 
 const PROVIDER_ORDER_MIRROR_URL = `${(import.meta.env.VITE_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "")}/provider-orders`;
 
@@ -518,6 +519,22 @@ async function createDelhiveryOrder(data: CreateOrderPayload): Promise<Order> {
   return order;
 }
 
+async function createIndiaPostOrder(data: CreateOrderPayload): Promise<Order> {
+  let pickup = findStoredPickupAddress(data.pickupAddressId);
+  if (!pickup) {
+    const response = await api.get<{ address?: StoredProviderPickupAddress }>(`/pickup-addresses/${data.pickupAddressId}`);
+    pickup = response.data?.address;
+  }
+  if (!pickup) throw new Error("Selected pickup address could not be loaded for India Post");
+  const booking = await indiaPostApi.book(data, pickup);
+  if (!booking.success || !booking.awb) throw new Error("India Post did not return a booked article number");
+  const order = makeIndiaPostOrder(data, booking);
+  const existing = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
+  courierApi.writeStoredOrders([order as Order & { providerOrderId: string }, ...existing.filter((item) => item.id !== order.id)]);
+  await mirrorProviderOrder(order);
+  return order;
+}
+
 function mapFshipTrackingEvents(providerOrderId: string, awb: string, data: FshipTrackingResponse): TrackingEvent[] {
   const scans = data.trackingdata ?? [];
   if (scans.length > 0) {
@@ -888,6 +905,10 @@ export const ordersApi = {
 
       if (data.serviceProvider?.toLowerCase() === "delhivery" || data.courierId.toLowerCase().includes("delhivery")) {
         return await createDelhiveryOrder(data);
+      }
+
+      if (data.serviceProvider?.toLowerCase() === "india-post" || data.courierId.toLowerCase().startsWith("india-post:")) {
+        return await createIndiaPostOrder(data);
       }
 
       if (shouldUseCourierApi()) {
