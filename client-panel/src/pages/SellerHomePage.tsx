@@ -268,6 +268,7 @@ export function SellerHomePage() {
   const wallet = homeData?.wallet;
   const recentOrders = homeData?.recentOrders ?? [];
   const statusDistribution = homeData?.statusDistribution ?? [];
+  const performance = homeData?.performance;
 
   // Prepare chart data for order status distribution
   const statusChartData = statusDistribution
@@ -362,10 +363,10 @@ export function SellerHomePage() {
           </div>
           <div className="grid flex-1 grid-cols-2 gap-3 sm:grid-cols-4 lg:max-w-3xl">
             {[
-              { label: "Delivery rate", value: "94.8%", note: "+2.4% this month", icon: TrendingUp, color: "text-emerald-300" },
-              { label: "On-time", value: "91.2%", note: "Within promised SLA", icon: CheckCircle2, color: "text-cyan-300" },
-              { label: "Avg. transit", value: "2.6d", note: "Across active lanes", icon: Clock3, color: "text-amber-300" },
-              { label: "NDR rate", value: "2.4%", note: "0.8% below average", icon: AlertTriangle, color: "text-rose-300" },
+              { label: "Delivery rate", value: `${performance?.deliveryRate ?? 0}%`, note: "From completed shipments", icon: TrendingUp, color: "text-emerald-300" },
+              { label: "On-time", value: `${performance?.onTimeRate ?? 0}%`, note: "Delivered within 5 days", icon: CheckCircle2, color: "text-cyan-300" },
+              { label: "Avg. transit", value: performance?.avgTransitDays != null ? `${performance.avgTransitDays}d` : "—", note: "Across delivered shipments", icon: Clock3, color: "text-amber-300" },
+              { label: "NDR rate", value: `${performance?.ndrRate ?? 0}%`, note: "Current shipment share", icon: AlertTriangle, color: "text-rose-300" },
             ].map((metric) => (
               <div key={metric.label} className="border-l border-white/15 pl-3">
                 <div className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${metric.color}`}>
