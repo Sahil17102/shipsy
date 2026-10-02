@@ -462,6 +462,7 @@ async function createFshipOrder(data: CreateOrderPayload): Promise<Order> {
   };
   const existing = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
   fshipApi.writeStoredOrders([updated, ...existing.filter((item) => item.id !== updated.id)]);
+  await mirrorProviderOrder(updated);
   return updated;
 }
 
@@ -729,6 +730,7 @@ async function createDirectCourierOrder(data: CreateOrderPayload): Promise<Order
     const order = makeOrderFromPayload(data, getProviderOrderId(result), getProviderAwb(result));
     const existing = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
     courierApi.writeStoredOrders([order, ...existing.filter((item) => item.id !== order.id)]);
+    await mirrorProviderOrder(order);
     return order;
   } catch (err) {
     if (isNetworkError(err)) {

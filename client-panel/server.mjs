@@ -16,6 +16,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || path.join(root, ".env") });
 const providerOrdersFile = process.env.PROVIDER_ORDERS_FILE || path.join(process.env.DATA_DIR || root, "data", "provider-orders.json");
 const dataDir = process.env.DATA_DIR || path.join(root, "data");
+const notificationsFile = path.join(dataDir, "notifications.json");
 const sellerRegistry = createSellerRegistry(dataDir);
 
 app.disable("x-powered-by");
@@ -249,7 +250,23 @@ function loadProviderOrders() {
 const providerOrders = loadProviderOrders();
 function persistProviderOrders() {
   fs.mkdirSync(path.dirname(providerOrdersFile), { recursive: true });
-  fs.writeFileSync(providerOrdersFile, JSON.stringify([...providerOrders.values()], null, 2), "utf8");
+  const temporary = `${providerOrdersFile}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify([...providerOrders.values()], null, 2), "utf8");
+  fs.renameSync(temporary, providerOrdersFile);
+}
+
+function readNotifications() {
+  try {
+    const rows = JSON.parse(fs.readFileSync(notificationsFile, "utf8"));
+    return Array.isArray(rows) ? rows : [];
+  } catch { return []; }
+}
+
+function persistNotifications(rows) {
+  fs.mkdirSync(path.dirname(notificationsFile), { recursive: true });
+  const temporary = `${notificationsFile}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(rows.slice(0, 5000), null, 2), "utf8");
+  fs.renameSync(temporary, notificationsFile);
 }
 
 async function getTeampafexToken(force = false) {
@@ -461,15 +478,215 @@ function providerOrderOwner(req, order) {
 }
 
 function trackingStatus(value) {
-  const status = String(value || "").toLowerCase();
-  if (status.includes("deliver")) return status.includes("out for") ? "out_for_delivery" : "delivered";
-  if (status.includes("transit") || status.includes("dispatch")) return "in_transit";
-  if (status.includes("pickup") && !status.includes("scheduled")) return "shipped";
-  if (status.includes("manifest") || status.includes("scheduled")) return "booked";
-  if (status.includes("rto") || status.includes("return")) return "rto_initiated";
+  const status = String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (/rto.*deliver|return.*deliver/.test(status)) return "rto_delivered";
+  if (/rto.*transit|return.*transit/.test(status)) return "rto_in_transit";
+  if (status.includes("rto") || status.includes("return to origin")) return "rto_initiated";
+  if (status.includes("out for delivery") || status.includes("ofd")) return "out_for_delivery";
+  if (status.includes("ndr") || status.includes("undelivered") || status.includes("not delivered") || status.includes("delivery failed")) return "ndr";
+  if (status.includes("deliver")) return "delivered";
+  if (status.includes("transit") || status.includes("dispatch") || status.includes("bagged")) return "in_transit";
+  if (status.includes("picked") || status.includes("pickup done") || status.includes("shipped")) return "shipped";
+  if (status.includes("manifest") || status.includes("scheduled") || status.includes("booked")) return "booked";
   if (status.includes("cancel")) return "cancelled";
   return "processing";
 }
+
+const terminalTrackingStatuses = new Set(["delivered", "cancelled", "rto_delivered", "lost"]);
+const trackingStatusRank = new Map([
+  ["created", 0], ["processing", 0], ["booked", 1], ["pickup_initiated", 2],
+  ["shipped", 3], ["in_transit", 4], ["out_for_delivery", 5], ["delivered", 6],
+]);
+
+function shouldApplyTrackingStatus(current, next) {
+  if (!next || next === "processing" || current === next) return false;
+  if (terminalTrackingStatuses.has(current)) return false;
+  if (["ndr", "rto_initiated", "rto_in_transit", "rto_delivered", "cancelled", "lost"].includes(next)) return true;
+  if (["ndr", "rto_initiated", "rto_in_transit"].includes(current)) return false;
+  return (trackingStatusRank.get(next) ?? -1) >= (trackingStatusRank.get(current) ?? -1);
+}
+
+function statusLabel(status) {
+  return String(status || "Shipment update").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function addStatusNotification(order, oldStatus, newStatus) {
+  const ownerId = String(order?.userId || order?.user?.id || "").trim();
+  if (!ownerId) return;
+  const orderRef = order.orderId || order.awb || order.id;
+  const now = new Date().toISOString();
+  const rows = readNotifications();
+  rows.unshift({
+    id: crypto.randomUUID(), userId: ownerId, event: `order.${newStatus}`, category: "orders",
+    title: `${orderRef}: ${statusLabel(newStatus)}`,
+    body: `Shipment ${orderRef} moved from ${statusLabel(oldStatus)} to ${statusLabel(newStatus)}.`,
+    link: `/orders/${encodeURIComponent(order.id)}`, readAt: null, createdAt: now,
+    data: { orderId: order.id, awb: order.awb, oldStatus, status: newStatus },
+  });
+  persistNotifications(rows);
+}
+
+async function emailStatusNotification(order, oldStatus, newStatus) {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return;
+  const customerEmail = normalizedEmail(order?.deliveryAddress?.email);
+  const seller = sellerRegistry.list().find((item) => String(item?.id || "") === String(order?.userId || ""));
+  const sellerEmail = normalizedEmail(order?.user?.email || seller?.email);
+  if (!customerEmail && !sellerEmail) return;
+  const orderRef = order.orderId || order.awb || order.id;
+  const customer = String(order?.deliveryAddress?.contactName || "Customer").trim();
+  const trackingUrl = `https://goshipsy.in/track-shipment?awb=${encodeURIComponent(order.awb || orderRef)}`;
+  const fromAddress = normalizedEmail(process.env.MAIL_FROM_ADDRESS || process.env.SMTP_USER);
+  const from = { name: String(process.env.MAIL_FROM_NAME || "ShipSy").trim(), address: fromAddress };
+  const sends = [];
+  if (customerEmail) sends.push(getMailTransport().sendMail({
+    from, to: customerEmail, subject: `${statusLabel(newStatus)} — shipment ${orderRef}`,
+    text: `Hi ${customer}, your shipment ${orderRef} is now ${statusLabel(newStatus)}. Track it here: ${trackingUrl}`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:28px;color:#0f1f3d"><h2 style="margin:0 0 12px">${statusLabel(newStatus)}</h2><p>Hi ${customer},</p><p>Your shipment <strong>${orderRef}</strong> is now <strong>${statusLabel(newStatus)}</strong>.</p><p><a href="${trackingUrl}">Track your shipment</a></p><p style="color:#667085;font-size:13px">Previous status: ${statusLabel(oldStatus)}</p></div>`,
+  }));
+  if (sellerEmail && sellerEmail !== customerEmail) sends.push(getMailTransport().sendMail({
+    from, to: sellerEmail, subject: `Order ${orderRef} is ${statusLabel(newStatus)}`,
+    text: `Order ${orderRef} moved from ${statusLabel(oldStatus)} to ${statusLabel(newStatus)}. AWB: ${order.awb || "Not assigned"}.`,
+  }));
+  await Promise.allSettled(sends);
+}
+
+async function fetchJson(target, options) {
+  const response = await fetch(target, options);
+  const { body } = await readUpstream(response);
+  if (!response.ok) throw Object.assign(new Error(upstreamErrorMessage(body, `Tracking returned HTTP ${response.status}`)), { status: response.status });
+  return body;
+}
+
+function newestDelhiveryUpdate(body) {
+  const shipments = Array.isArray(body?.ShipmentData) ? body.ShipmentData : [];
+  const shipment = shipments[0]?.Shipment || {};
+  const scans = shipments.flatMap((entry) => Array.isArray(entry?.Shipment?.Scans) ? entry.Shipment.Scans : []);
+  const candidates = scans.map((entry) => {
+    const scan = entry?.ScanDetail || entry || {};
+    return {
+      text: String(scan.Scan || scan.Instructions || scan.Status || ""),
+      timestamp: scan.ScanDateTime || scan.StatusDateTime || null,
+      location: scan.ScannedLocation || scan.ScanLocation || scan.StatusLocation || null,
+    };
+  });
+  if (shipment.Status?.Status) candidates.push({
+    text: String(shipment.Status.Status), timestamp: shipment.Status.StatusDateTime || null,
+    location: shipment.Status.StatusLocation || shipment.Destination || null,
+  });
+  return candidates.filter((item) => item.text).sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0] || null;
+}
+
+async function trackingUpdateFor(order) {
+  const provider = String(order.serviceProvider || "").trim().toLowerCase();
+  const awb = String(order.awb || "").trim();
+  if (!awb && provider !== "teampafex" && provider !== "courier_api") return null;
+
+  if (provider === "delhivery") {
+    const target = new URL("https://track.delhivery.com/api/v1/packages/json/");
+    target.searchParams.set("waybill", awb);
+    const body = await fetchJson(target, { headers: { Accept: "application/json", Authorization: `Token ${requireEnv("DELHIVERY_TOKEN")}` } });
+    return newestDelhiveryUpdate(body);
+  }
+  if (["fship", "logixmitra", "logix_mitra"].includes(provider)) {
+    const body = await fetchJson("https://capi.fship.in/api/shipmentsummary", {
+      method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", signature: getFshipClientKey() },
+      body: JSON.stringify({ waybill: awb }),
+    });
+    const summary = body?.summary || {};
+    return { text: String(summary.status || body?.response || ""), timestamp: summary.lastscandate || summary.lastscanned || null, location: summary.location || null };
+  }
+  if (["teampafex", "courier_api"].includes(provider)) {
+    const providerId = String(order.providerOrderId || order.id || "").replace(/^courier-/, "");
+    if (!providerId) return null;
+    const token = await getTeampafexToken();
+    const body = await fetchJson(`https://teampafex.in/api/track_order/${encodeURIComponent(providerId)}`, {
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+    });
+    return { text: String(body?.order_status || body?.msg || ""), timestamp: null, location: null };
+  }
+  if (provider === "india-post") {
+    const body = await fetchJson(`http://127.0.0.1:${port}/api/providers/india-post/track?awb=${encodeURIComponent(awb)}`);
+    const serialized = JSON.stringify(body);
+    const text = body?.status || body?.event || body?.description || body?.tracking_status || serialized.match(/"(?:status|event|description)"\s*:\s*"([^"]+)"/i)?.[1] || "";
+    return { text: String(text), timestamp: body?.event_date || body?.date || null, location: body?.location || null };
+  }
+  return null;
+}
+
+let syncInProgress = false;
+async function syncProviderOrders() {
+  if (syncInProgress) return { checked: 0, updated: 0 };
+  syncInProgress = true;
+  let checked = 0;
+  let updatedCount = 0;
+  try {
+    for (const [id, order] of providerOrders) {
+      const currentStatus = dashboardStatus(order);
+      if (terminalTrackingStatuses.has(currentStatus)) continue;
+      try {
+        const update = await trackingUpdateFor(order);
+        checked += 1;
+        const nextStatus = trackingStatus(update?.text);
+        if (!update || !shouldApplyTrackingStatus(currentStatus, nextStatus)) continue;
+        const now = new Date().toISOString();
+        const next = {
+          ...order, status: nextStatus, courierStatus: update.text, lastTrackingLocation: update.location || order.lastTrackingLocation,
+          lastTrackingAt: update.timestamp || now, updatedAt: now,
+          ...(nextStatus === "delivered" ? { deliveredAt: update.timestamp || now } : {}),
+        };
+        providerOrders.set(id, next);
+        persistProviderOrders();
+        addStatusNotification(next, currentStatus, nextStatus);
+        emailStatusNotification(next, currentStatus, nextStatus).catch((error) => console.error("Status email failed", { orderId: id, message: error.message }));
+        updatedCount += 1;
+      } catch (error) {
+        console.error("Order tracking sync failed", { orderId: id, provider: order.serviceProvider, message: error.message });
+      }
+    }
+    return { checked, updated: updatedCount };
+  } finally { syncInProgress = false; }
+}
+
+function notificationRowsForRequest(req) {
+  const seller = requestSeller(req);
+  if (!seller) return [];
+  return readNotifications().filter((item) => String(item.userId) === String(seller.id));
+}
+
+app.get("/api/notifications", (req, res) => {
+  const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 30));
+  const unreadOnly = String(req.query?.unread || "").toLowerCase() === "true";
+  const all = notificationRowsForRequest(req);
+  const filtered = unreadOnly ? all.filter((item) => !item.readAt) : all;
+  res.json({ items: filtered.slice(0, limit), unreadCount: all.filter((item) => !item.readAt).length });
+});
+
+app.get("/api/notifications/unread-count", (req, res) => {
+  res.json({ count: notificationRowsForRequest(req).filter((item) => !item.readAt).length });
+});
+
+app.post("/api/notifications/:id/read", (req, res) => {
+  const seller = requestSeller(req);
+  if (!seller) return res.status(401).json({ message: "Seller identity is required" });
+  const rows = readNotifications();
+  const item = rows.find((entry) => entry.id === req.params.id && String(entry.userId) === String(seller.id));
+  if (!item) return res.status(404).json({ message: "Notification not found" });
+  item.readAt ||= new Date().toISOString();
+  persistNotifications(rows);
+  return res.json({ notification: item });
+});
+
+app.post("/api/notifications/read-all", (req, res) => {
+  const seller = requestSeller(req);
+  if (!seller) return res.status(401).json({ message: "Seller identity is required" });
+  const now = new Date().toISOString();
+  const rows = readNotifications();
+  rows.forEach((item) => {
+    if (String(item.userId) === String(seller.id) && !item.readAt) item.readAt = now;
+  });
+  persistNotifications(rows);
+  return res.json({ success: true });
+});
 
 app.get("/api/provider-orders", (req, res) => {
   const seller = requestSeller(req);
@@ -912,4 +1129,9 @@ app.use((error, _req, res, _next) => {
   res.status(status).json({ message: error instanceof Error ? error.message : "Courier proxy request failed" });
 });
 
-app.listen(port, "0.0.0.0", () => console.log(`Shipsy client listening on ${port}`));
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Shipsy client listening on ${port}`);
+  const intervalMs = Math.max(60_000, Number(process.env.TRACKING_SYNC_INTERVAL_MS) || 5 * 60_000);
+  setTimeout(() => syncProviderOrders().catch((error) => console.error("Initial tracking sync failed", error)), 10_000).unref();
+  setInterval(() => syncProviderOrders().catch((error) => console.error("Tracking sync failed", error)), intervalMs).unref();
+});
