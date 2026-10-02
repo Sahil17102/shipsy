@@ -503,6 +503,11 @@ function dashboardDate(order) {
   return Number.isNaN(value.getTime()) ? null : value;
 }
 
+function dashboardDayKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  return new Date(date.getTime() + 330 * 60_000).toISOString().slice(0, 10);
+}
+
 function dashboardRound(value, digits = 2) {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
@@ -511,8 +516,8 @@ function dashboardRound(value, digits = 2) {
 function dashboardData(req) {
   const days = Math.min(365, Math.max(1, Math.trunc(dashboardNumber(req.query?.days) || 30)));
   const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setUTCHours(0, 0, 0, 0);
+  const todayKey = dashboardDayKey(now);
+  const todayStart = new Date(`${todayKey}T00:00:00+05:30`);
   const periodStart = new Date(todayStart.getTime() - (days - 1) * 86_400_000);
   const previousStart = new Date(periodStart.getTime() - days * 86_400_000);
   const serviceProvider = String(req.query?.serviceProvider || "").trim().toLowerCase();
@@ -595,8 +600,8 @@ function dashboardData(req) {
   const trends = [];
   for (let index = 0; index < days; index += 1) {
     const date = new Date(startDay.getTime() + index * 86_400_000);
-    const dateKey = date.toISOString().slice(0, 10);
-    const orders = current.filter((order) => dashboardDate(order)?.toISOString().slice(0, 10) === dateKey);
+    const dateKey = dashboardDayKey(date);
+    const orders = current.filter((order) => dashboardDayKey(dashboardDate(order)) === dateKey);
     trends.push({
       date: dateKey, orders: orders.length, delivered: orders.filter(isDelivered).length,
       rto: orders.filter((order) => dashboardStatus(order).startsWith("rto_")).length,
@@ -629,11 +634,10 @@ function dashboardData(req) {
   const failureSpikes = courierInsights.filter((item) => item.failed > 0 && item.failureRate >= 20).map((item) => ({
     courier: item.courier, total: item.totalOrders, failed: item.failed, failureRate: item.failureRate,
   }));
-  const todayKey = now.toISOString().slice(0, 10);
   return {
     overview: {
       totalOrders: current.length, previousOrders: previous.length,
-      ordersToday: current.filter((order) => dashboardDate(order)?.toISOString().slice(0, 10) === todayKey).length,
+      ordersToday: current.filter((order) => dashboardDayKey(dashboardDate(order)) === todayKey).length,
       activeSellers: sellerGroups.size, revenue: totalRevenue, previousRevenue: sumRevenue(previous),
       deliveryRate: deliveryRate(current), previousDeliveryRate: deliveryRate(previous), avgDeliveryDays: averageDeliveryDays(current),
     },
