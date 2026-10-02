@@ -20,6 +20,8 @@ interface ChargesSummarySectionProps {
   onNext: () => void;
   onBack?: () => void;
   nextLabel?: string;
+  submitLabel?: string;
+  submittingLabel?: string;
 }
 
 function SummaryRow({
@@ -60,6 +62,8 @@ export function ChargesSummarySection({
   onNext,
   onBack,
   nextLabel = "Next Step",
+  submitLabel = "Create Order",
+  submittingLabel = "Creating Order...",
 }: ChargesSummarySectionProps) {
   const { register, watch } = useFormContext<OrderFormValues>();
 
@@ -218,11 +222,11 @@ export function ChargesSummarySection({
           {isSubmitting ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Creating Order...
+              {submittingLabel}
             </>
           ) : (
             <>
-              Create Order
+              {submitLabel}
               <ArrowRight className="w-4 h-4" />
             </>
           )}

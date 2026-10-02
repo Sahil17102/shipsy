@@ -22,6 +22,7 @@ import {
   Receipt,
   Download,
   Loader2,
+  Send,
 } from "lucide-react";
 import { useOrders, useManifestOrders, useCancelOrder, useBulkManifest, useOrderCourierOptions } from "@/queries/useOrders";
 import { usePickupAddresses } from "@/pages/settings/pickup-addresses/queries";
@@ -37,10 +38,12 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { PAGE_LABELS, STATUS_OPTIONS, PAYMENT_OPTIONS, canManifest, canCancel, canLabel } from "./config";
 import FilterSelect from "./components/FilterSelect";
 import ActionButton from "./components/ActionButton";
+import DraftShippingModal from "./components/DraftShippingModal";
 
 const PAGE_SIZE = 20;
 
 const STATUS_TAG_COLORS: Record<string, string> = {
+  draft: "default",
   created: "default",
   processing: "processing",
   booked: "blue",
@@ -59,6 +62,7 @@ const STATUS_TAG_COLORS: Record<string, string> = {
 
 interface OrdersPageProps {
   type?: "b2b" | "b2c";
+  drafts?: boolean;
 }
 
 // ── Stat Card ──
@@ -96,10 +100,13 @@ function StatCard({
 
 // ── Main Page ──
 
-export function OrdersPage({ type }: OrdersPageProps) {
+export function OrdersPage({ type, drafts = false }: OrdersPageProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { title, description, icon } = PAGE_LABELS[type ?? "all"];
+  const pageLabels = PAGE_LABELS[type ?? "all"];
+  const title = drafts ? "Draft Orders" : pageLabels.title;
+  const description = drafts ? "Select couriers and book individual or multiple draft shipments" : pageLabels.description;
+  const icon = pageLabels.icon;
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [sortField, setSortField] = useState<string | undefined>();
@@ -119,7 +126,7 @@ export function OrdersPage({ type }: OrdersPageProps) {
   }, [searchParams, navigate]);
 
   // Read initial filter values from URL params
-  const initialStatus = searchParams.get("status") ?? "";
+  const initialStatus = drafts ? "draft" : searchParams.get("status") ?? "";
   const initialPayment = searchParams.get("payment") ?? "";
   const initialSearch = searchParams.get("search") ?? "";
 
@@ -151,7 +158,7 @@ export function OrdersPage({ type }: OrdersPageProps) {
 
   const params = {
     search: debouncedSearch || undefined,
-    status: filters.applied.status || undefined,
+    status: drafts ? "draft" : filters.applied.status || undefined,
     orderType: type?.toUpperCase() || undefined,
     paymentType: filters.applied.payment || undefined,
     pickupAddressId: filters.applied.pickup || undefined,
@@ -178,6 +185,8 @@ export function OrdersPage({ type }: OrdersPageProps) {
   const [bulkLabelLoading, setBulkLabelLoading] = useState(false);
   const [manifestDocLoading, setManifestDocLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [shippingDrafts, setShippingDrafts] = useState<Order[]>([]);
+  const [shipModalOpen, setShipModalOpen] = useState(false);
 
   // Bulk initiate-pickup: any number of orders (up to a generous safety cap),
   // across any mix of couriers. The server processes each order against its own
@@ -186,6 +195,10 @@ export function OrdersPage({ type }: OrdersPageProps) {
   const selectedOrders = useMemo(
     () => orders.filter((o) => selectedRowKeys.includes(o.id)),
     [orders, selectedRowKeys],
+  );
+  const selectedDrafts = useMemo(
+    () => selectedOrders.filter((order) => order.status === "draft"),
+    [selectedOrders],
   );
   const manifestableSelected = useMemo(
     () => selectedOrders.filter((o) => canManifest(o)),
@@ -219,6 +232,12 @@ export function OrdersPage({ type }: OrdersPageProps) {
   );
   const canDownloadManifest = manifestableDocSelected.length > 0
     && manifestableDocSelected.length <= BULK_MANIFEST_MAX;
+
+  async function openDraftShipping(items: Order[]) {
+    if (items.length === 0) return;
+    setShippingDrafts(items);
+    setShipModalOpen(true);
+  }
 
   async function handleBulkManifest() {
     if (!canBulkManifest) return;
@@ -363,9 +382,9 @@ export function OrdersPage({ type }: OrdersPageProps) {
   );
 
   const activeFilterCount = [
-    filters.applied.status,
+    drafts ? "" : filters.applied.status,
     filters.applied.payment,
-    filters.applied.courier,
+    drafts ? "" : filters.applied.courier,
     filters.applied.pickup,
     filters.applied.startDate || filters.applied.endDate,
   ].filter(Boolean).length + (filters.applied.search ? 1 : 0);
@@ -395,7 +414,7 @@ export function OrdersPage({ type }: OrdersPageProps) {
       key: "status",
       label: "Status",
       width: "160px",
-      render: <FilterSelect value={filters.draft.status} onChange={(v) => filters.setFilter("status", v)} options={STATUS_OPTIONS} />,
+      render: <FilterSelect value={drafts ? "draft" : filters.draft.status} onChange={(v) => filters.setFilter("status", v)} options={drafts ? [{ value: "draft", label: "Draft" }] : STATUS_OPTIONS} />,
     },
     {
       key: "pickup",
@@ -561,7 +580,7 @@ export function OrdersPage({ type }: OrdersPageProps) {
       // and an antd Tag never wraps or shrinks — it just bleeds over the next
       // column. Clamp the tag itself and keep the full name in a tooltip.
       render: (_, r) => {
-        const name = r.courierName || formatKeyword(r.serviceProvider);
+        const name = r.status === "draft" ? "Not selected" : r.courierName || formatKeyword(r.serviceProvider);
         return (
           <Tooltip title={name}>
             <Tag bordered={false} className="max-w-full !mr-0 align-middle">
@@ -596,7 +615,7 @@ export function OrdersPage({ type }: OrdersPageProps) {
       sortDirections: ["descend", "ascend"] as const,
       render: (_, r) => (
         <span className="text-sm font-medium text-foreground tabular-nums">
-          {formatCurrency(r.rate.totalCharge)}
+          {formatCurrency(r.status === "draft" ? r.orderAmount : r.rate.totalCharge)}
         </span>
       ),
     },
@@ -610,6 +629,12 @@ export function OrdersPage({ type }: OrdersPageProps) {
       align: "right",
       fixed: "right",
       mobileMenu: (r: Order) => {
+        if (r.status === "draft") {
+          return [
+            { key: "ship-now", icon: <Send size={14} />, label: "Ship Now", onClick: () => openDraftShipping([r]) },
+            { key: "view", icon: <Eye size={14} />, label: "View Details", onClick: () => navigate(`/orders/${r.id}`) },
+          ];
+        }
         const items: any[] = [
           {
             key: "view",
@@ -665,6 +690,16 @@ export function OrdersPage({ type }: OrdersPageProps) {
       // or cancelled several times over by repeated clicks.
       render: (_, r) => (
         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          {r.status === "draft" ? (
+            <ActionButton
+              label="Ship Now"
+              icon={<Send size={13} />}
+              variant="primary"
+              size="xs"
+              onClick={() => openDraftShipping([r])}
+            />
+          ) : (
+            <>
           {canManifest(r) && (
             <ActionButton
               label="Initiate Pickup"
@@ -715,6 +750,8 @@ export function OrdersPage({ type }: OrdersPageProps) {
               </span>
             </Tooltip>
           )}
+            </>
+          )}
         </div>
       ),
     },
@@ -741,10 +778,12 @@ export function OrdersPage({ type }: OrdersPageProps) {
             {icon}
           </div>
           <h2 className="text-base font-bold text-foreground mb-2">
-            No {type ? `${type.toUpperCase()} ` : ""}orders yet
+            {drafts ? "No draft orders" : `No ${type ? `${type.toUpperCase()} ` : ""}orders yet`}
           </h2>
           <p className="text-sm text-muted max-w-sm mb-6">
-            Once you create your first shipping order, it will appear here.
+            {drafts
+              ? "Complete the first two order-creation steps and the order will appear here for courier booking."
+              : "Once you create your first shipping order, it will appear here."}
           </p>
           <Link
             to="/orders/create"
@@ -807,6 +846,20 @@ export function OrdersPage({ type }: OrdersPageProps) {
           <span className="font-medium text-foreground">
             {selectedRowKeys.length} selected
           </span>
+          {drafts ? (
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={() => setSelectedRowKeys([])} className="text-xs text-muted hover:text-foreground">Clear</button>
+              <button
+                onClick={() => openDraftShipping(selectedDrafts)}
+                disabled={selectedDrafts.length === 0 || selectedDrafts.length > 50}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Send className="h-3.5 w-3.5" />
+                Ship Selected {selectedDrafts.length}
+              </button>
+            </div>
+          ) : (
+            <>
           {manifestableSelected.length > 0 && (
             <>
               <span className="text-muted">
@@ -893,6 +946,8 @@ export function OrdersPage({ type }: OrdersPageProps) {
               </button>
             </Tooltip>
           </div>
+            </>
+          )}
         </div>
       )}
 
@@ -930,11 +985,11 @@ export function OrdersPage({ type }: OrdersPageProps) {
         loading={isFetching}
         size="small"
         rowSelection={
-          type === "b2c"
+          drafts || type === "b2c"
             ? {
               selectedRowKeys,
               onChange: setSelectedRowKeys,
-              getCheckboxProps: (r: Order) => ({ disabled: !canManifest(r) && !canLabel(r) && !selectedRowKeys.includes(r.id) }),
+              getCheckboxProps: (r: Order) => ({ disabled: drafts ? r.status !== "draft" : !canManifest(r) && !canLabel(r) && !selectedRowKeys.includes(r.id) }),
             }
             : undefined
         }
@@ -978,6 +1033,13 @@ export function OrdersPage({ type }: OrdersPageProps) {
         // and header/body drift out of alignment.
         scroll={{ x: 1300 }}
         locale={{ emptyText: "No matching orders" }}
+      />
+      <DraftShippingModal
+        open={shipModalOpen}
+        drafts={shippingDrafts}
+        pickupAddresses={pickupAddresses}
+        onClose={() => setShipModalOpen(false)}
+        onComplete={() => setSelectedRowKeys([])}
       />
     </motion.div>
   );

@@ -60,6 +60,7 @@ function App() {
         <Route path="/home" element={<SellerHomePage />} />
         <Route path="/analytics" element={<DashboardPage />} />
         <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/orders/drafts" element={<OrdersPage drafts />} />
         <Route path="/orders/b2b" element={<OrdersPage type="b2b" />} />
         <Route path="/orders/b2c" element={<OrdersPage type="b2c" />} />
         <Route path="/orders/create" element={<CreateOrderPage />} />

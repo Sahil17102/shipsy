@@ -1,7 +1,7 @@
 import axios from "axios";
 import { api } from "./api";
 import { downloadBlob } from "./utils";
-import type { Order, CreateOrderPayload, TrackingEvent } from "./ordersTypes";
+import type { Order, CreateOrderPayload, DraftOrderPayload, TrackingEvent } from "./ordersTypes";
 import { walletApi } from "./walletApi";
 import {
   courierApi,
@@ -22,6 +22,7 @@ import {
   type FshipTrackingResponse,
 } from "./fshipApi";
 import { indiaPostApi, makeIndiaPostOrder } from "./indiaPostApi";
+import type { AvailableCourier } from "./ratesApi";
 
 async function mirrorProviderOrder(order: Order): Promise<void> {
   // Use the authenticated client so the shared service receives the seller
@@ -31,7 +32,7 @@ async function mirrorProviderOrder(order: Order): Promise<void> {
 }
 
 // Re-export types for backward compatibility
-export type { Order, OrderStatus, OrderAddress, OrderProduct, OrderRate, CreateOrderPayload, TrackingEvent } from "./ordersTypes";
+export type { Order, OrderStatus, OrderAddress, OrderProduct, OrderRate, CreateOrderPayload, DraftOrderPayload, TrackingEvent } from "./ordersTypes";
 
 /**
  * Result of an "Initiate Pickup" call. `warnings` carries orders that went
@@ -47,6 +48,7 @@ export interface ManifestResponse {
 
 export interface OrderStats {
   total: number;
+  draft: number;
   created: number;
   processing: number;
   booked: number;
@@ -217,6 +219,7 @@ function getCourierDisplayName(courierId: string): string {
 function buildStats(orders: Order[]): OrderStats {
   const stats: OrderStats = {
     total: orders.length,
+    draft: 0,
     created: 0,
     processing: 0,
     booked: 0,
@@ -883,6 +886,41 @@ async function getProviderOrders(params?: OrderListParams): Promise<OrderListRes
 }
 
 export const ordersApi = {
+  saveDraft: async (payload: DraftOrderPayload): Promise<Order> => {
+    const { data } = await api.post<{ order: Order }>("/provider-orders/drafts", payload, { timeout: 30_000 });
+    return data.order;
+  },
+
+  shipDraft: async (draft: Order, courier: AvailableCourier): Promise<Order> => {
+    if (draft.status !== "draft" || !draft.draftPayload) throw new Error("This order is not a valid draft");
+    const payload: CreateOrderPayload = {
+      ...draft.draftPayload,
+      chargeableWeight: courier.chargeableWeight,
+      courierId: courier.courierId,
+      courierName: courier.name,
+      serviceProvider: courier.serviceProvider,
+      rate: {
+        forward: courier.rate.forward,
+        rto: courier.rate.rto,
+        codCharges: courier.rate.codCharges,
+        otherCharges: courier.rate.otherCharges,
+        freightCharge: courier.rate.freightCharge,
+        totalCharge: courier.rate.totalCharge,
+        zone: courier.zone.code,
+      },
+      ...(courier._b2bRate ? {
+        chargesBreakdown: {
+          baseFreight: courier._b2bRate.baseFreight,
+          overheads: courier._b2bRate.overheads,
+          total: courier._b2bRate.total,
+        },
+      } : {}),
+    };
+    const order = await ordersApi.create(payload);
+    await api.delete(`/provider-orders/${encodeURIComponent(draft.id)}/draft`, { timeout: 15_000 }).catch(() => undefined);
+    return order;
+  },
+
   create: async (data: CreateOrderPayload): Promise<Order> => {
     const shippingCharge = Math.round(Number(data.rate?.totalCharge || data.rate?.freightCharge || data.rate?.forward || 0) * 100) / 100;
     const provider = data.serviceProvider || data.courierName || "courier";

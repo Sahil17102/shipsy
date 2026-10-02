@@ -1,6 +1,7 @@
 import type { OrderStatus } from "./types";
 
 export const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string }> = {
+  draft: { label: "Draft", color: "default" },
   created: { label: "Pending", color: "blue" },
   processing: { label: "Processing", color: "gold" },
   booked: { label: "Booked", color: "cyan" },

@@ -105,6 +105,7 @@ export interface RtoOrderListItem extends OrderListItem {
 }
 
 export type OrderStatus =
+  | "draft"
   | "created"
   | "processing"
   | "booked"
@@ -122,6 +123,7 @@ export type OrderStatus =
 
 export interface OrderStats {
   total: number;
+  draft: number;
   created: number;
   processing: number;
   booked: number;

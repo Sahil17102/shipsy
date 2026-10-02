@@ -1,9 +1,23 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
-import { ordersApi, type CreateOrderPayload, type TrackingEvent, type OrderListParams, type BulkCreateResponse, type NdrRtoFilterParams } from "@/lib/ordersApi";
+import { ordersApi, type CreateOrderPayload, type DraftOrderPayload, type TrackingEvent, type OrderListParams, type BulkCreateResponse, type NdrRtoFilterParams } from "@/lib/ordersApi";
 import { toast } from "sonner";
 import { WALLET_QUERY_KEY, WALLET_TRANSACTIONS_KEY } from "./useWallet";
 
 export const ORDERS_QUERY_KEY = ["orders"] as const;
+
+export function useSaveOrderDraft() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: DraftOrderPayload) => ordersApi.saveDraft(payload),
+    onSuccess: (order) => {
+      queryClient.invalidateQueries({ queryKey: ORDERS_QUERY_KEY });
+      toast.success("Order saved to Drafts", { description: `${order.orderId} is ready for courier selection.` });
+    },
+    onError: (error: Error) => {
+      toast.error("Failed to save draft", { description: error.message });
+    },
+  });
+}
 
 export function useCreateOrder() {
   const queryClient = useQueryClient();

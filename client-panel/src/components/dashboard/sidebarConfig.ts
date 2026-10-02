@@ -19,6 +19,7 @@ import {
   Calculator,
   Search,
   CreditCard,
+  FilePenLine,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -53,6 +54,7 @@ export const navGroups: NavGroup[] = [
         icon: ShoppingCart,
         children: [
           { label: "Create Order", href: "/orders/create", icon: Plus, isAction: true },
+          { label: "Draft Orders", href: "/orders/drafts", icon: FilePenLine },
           { label: "All Orders", href: "/orders", icon: List },
           { label: "B2B Orders", href: "/orders/b2b", icon: Building2 },
           { label: "B2C Orders", href: "/orders/b2c", icon: UserRound },

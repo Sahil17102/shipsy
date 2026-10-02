@@ -4,6 +4,7 @@ export const ORDER_STATUS_CONFIG: Record<
   OrderStatus,
   { label: string; className: string }
 > = {
+  draft: { label: "Draft", className: "bg-slate-500/10 text-slate-600 border-slate-500/20" },
   created: { label: "Pending", className: "bg-blue-500/10 text-blue-500 border-blue-500/20" },
   processing: { label: "Processing", className: "bg-amber-500/10 text-amber-500 border-amber-500/20" },
   booked: { label: "Booked", className: "bg-sky-500/10 text-sky-500 border-sky-500/20" },

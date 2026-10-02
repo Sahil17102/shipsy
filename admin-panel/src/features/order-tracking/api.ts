@@ -12,6 +12,7 @@ const emptyOrdersResponse: ListOrdersResponse = {
   pagination: { page: 1, limit: 10, total: 0, totalPages: 0 },
   stats: {
     total: 0,
+    draft: 0,
     created: 0,
     processing: 0,
     booked: 0,

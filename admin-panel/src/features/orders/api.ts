@@ -23,7 +23,7 @@ type ProviderOrder = Record<string, unknown>;
 function providerStatus(value: unknown): OrderStatus {
   const status = String(value || "created").toLowerCase().replace(/[\s-]+/g, "_");
   const aliases: Record<string, OrderStatus> = {
-    created: "created", processing: "processing", booked: "booked",
+    draft: "draft", created: "created", processing: "processing", booked: "booked",
     pickup_initiated: "pickup_initiated", shipped: "shipped",
     ready_to_ship: "booked", manifested: "booked", dispatched: "shipped",
     in_transit: "in_transit", out_for_delivery: "out_for_delivery", delivered: "delivered",
@@ -102,7 +102,7 @@ async function listProviderOrders(): Promise<OrderListItem[]> {
 
 function emptyOrderStats() {
   return {
-    total: 0, created: 0, processing: 0, booked: 0, pickup_initiated: 0,
+    total: 0, draft: 0, created: 0, processing: 0, booked: 0, pickup_initiated: 0,
     shipped: 0, in_transit: 0, out_for_delivery: 0, delivered: 0, ndr: 0,
     rto_initiated: 0, rto_in_transit: 0, rto_delivered: 0, cancelled: 0,
     lost: 0, totalRevenue: 0,

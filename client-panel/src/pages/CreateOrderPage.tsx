@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState } from "react";
 import { useForm, useFormContext, FormProvider, Controller, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,10 +23,9 @@ import {
   formatCurrency,
 } from "@/utils/orderHelpers";
 import { normalizeQuantity, totalDeadWeightKg } from "@/utils/b2bBoxes";
-import { useCreateOrder } from "@/queries/useOrders";
+import { useSaveOrderDraft } from "@/queries/useOrders";
 import { FormToggle } from "@/components/forms";
-import type { AvailableCourier } from "@/lib/ratesApi";
-import type { CreateOrderPayload } from "@/lib/ordersApi";
+import type { DraftOrderPayload } from "@/lib/ordersApi";
 import {
   OrderDetailsSection,
   DeliveryDetailsSection,
@@ -36,7 +35,6 @@ import {
   InvoiceDetailsSection,
   ChargesSummarySection,
   PickupLocationSection,
-  CourierSelectionSection,
   StepIndicator,
   type Step,
 } from "@/components/orders";
@@ -44,7 +42,6 @@ import {
 const STEPS: Step[] = [
   { label: "Order & Delivery", shortLabel: "Order" },
   { label: "Pickup Location", shortLabel: "Pickup" },
-  { label: "Courier Selection", shortLabel: "Courier" },
 ];
 
 function MobileBottomBar({
@@ -108,11 +105,11 @@ function MobileBottomBar({
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Creating...
+                  Saving...
                 </>
               ) : (
                 <>
-                  Create Order
+                  Save to Drafts
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -127,13 +124,8 @@ function MobileBottomBar({
 export function CreateOrderPage() {
   const navigate = useNavigate();
   const { data: kyc, isLoading: isKycLoading, isFetching: isKycFetching } = useKyc();
-  const createOrderMutation = useCreateOrder();
+  const saveDraftMutation = useSaveOrderDraft();
   const [currentStep, setCurrentStep] = useState(1);
-  const availableCouriersRef = useRef<AvailableCourier[]>([]);
-
-  const handleCouriersLoaded = useCallback((couriers: AvailableCourier[]) => {
-    availableCouriersRef.current = couriers;
-  }, []);
 
   const methods = useForm<OrderFormValues>({
     resolver: zodResolver(orderFormSchema),
@@ -189,20 +181,6 @@ export function CreateOrderPage() {
   const currentOrderType = watchField("orderType");
 
   const onSubmit = async (data: OrderFormValues) => {
-    // Find selected courier from fetched list
-    const selectedCourier = availableCouriersRef.current.find(
-      (c) => c.courierId === data.selectedCourierId,
-    );
-
-    if (!selectedCourier) {
-      // Only show toast when courier options have loaded (user had a chance to select).
-      // Avoid showing it when user just landed on step 3 and options are still loading.
-      if (availableCouriersRef.current.length > 0) {
-        toast.error("Please select a courier partner");
-      }
-      return;
-    }
-
     if (!data.pickupAddressId) {
       toast.error("Please select a pickup address");
       return;
@@ -230,7 +208,7 @@ export function CreateOrderPage() {
       topHeight = Math.max(...data.packages.map((p) => p.height ?? 0));
     }
 
-    const payload: CreateOrderPayload = {
+    const payload: DraftOrderPayload = {
       orderId: data.orderId,
       orderDate: data.orderDate,
       orderType: data.orderType,
@@ -246,26 +224,13 @@ export function CreateOrderPage() {
       length: topLength,
       breadth: topBreadth,
       height: topHeight,
-      chargeableWeight: selectedCourier.chargeableWeight,
       products: data.products,
       orderAmount: totalOrderValue,
       codAmount,
       discount: data.discount > 0 ? data.discount : undefined,
-      courierId: selectedCourier.courierId,
-      courierName: selectedCourier.name,
-      serviceProvider: selectedCourier.serviceProvider,
       pickupAddressId: data.pickupAddressId,
       preferredPickupDate: data.preferredPickupDate,
       preferredPickupTime: data.preferredPickupTime || undefined,
-      rate: {
-        forward: selectedCourier.rate.forward,
-        rto: selectedCourier.rate.rto,
-        codCharges: selectedCourier.rate.codCharges,
-        otherCharges: selectedCourier.rate.otherCharges,
-        freightCharge: selectedCourier.rate.freightCharge,
-        totalCharge: selectedCourier.rate.totalCharge,
-        zone: selectedCourier.zone.code,
-      },
 
       // B2B-specific fields
       ...(data.orderType === "B2B" && {
@@ -286,19 +251,12 @@ export function CreateOrderPage() {
           ebn: inv.ebnNumber || undefined,
           ebnExpiry: inv.ebnExpiry || undefined,
         })),
-        chargesBreakdown: (selectedCourier as any)._b2bRate
-          ? {
-              baseFreight: (selectedCourier as any)._b2bRate.baseFreight,
-              overheads: (selectedCourier as any)._b2bRate.overheads,
-              total: (selectedCourier as any)._b2bRate.total,
-            }
-          : undefined,
       }),
     };
 
     try {
-      const order = await createOrderMutation.mutateAsync(payload);
-      navigate(`/orders/${order.id}`);
+      await saveDraftMutation.mutateAsync(payload);
+      navigate("/orders/drafts");
     } catch {
       // Error handled by mutation onError
     }
@@ -428,12 +386,7 @@ export function CreateOrderPage() {
   const handleNext = () => goToStep(Math.min(currentStep + 1, STEPS.length));
   const handleBack = () => goToStep(Math.max(currentStep - 1, 1));
 
-  const nextLabel =
-    currentStep === 1
-      ? "Next: Pickup Location"
-      : currentStep === 2
-        ? "Next: Courier Selection"
-        : undefined;
+  const nextLabel = currentStep === 1 ? "Next: Pickup Location" : undefined;
 
   // ── KYC Gate ──
   if (isKycLoading || isKycFetching) {
@@ -584,18 +537,6 @@ export function CreateOrderPage() {
                   </motion.div>
                 )}
 
-                {currentStep === 3 && (
-                  <motion.div
-                    key="step3"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.25 }}
-                    className="space-y-4"
-                  >
-                    <CourierSelectionSection onCouriersLoaded={handleCouriersLoaded} />
-                  </motion.div>
-                )}
               </AnimatePresence>
             </div>
 
@@ -609,6 +550,8 @@ export function CreateOrderPage() {
                   onNext={handleNext}
                   onBack={currentStep > 1 ? handleBack : undefined}
                   nextLabel={nextLabel}
+                  submitLabel="Save to Drafts"
+                  submittingLabel="Saving Draft..."
                 />
               </div>
             </div>

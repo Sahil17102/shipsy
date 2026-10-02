@@ -38,7 +38,7 @@ app.use((req, res, next) => {
   res.set("Vary", "Origin");
   res.set("Access-Control-Allow-Credentials", "true");
   res.set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Shipsy-User-Id, X-Shipsy-User-Email");
-  res.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS");
+  res.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -622,7 +622,7 @@ async function syncProviderOrders() {
   try {
     for (const [id, order] of providerOrders) {
       const currentStatus = dashboardStatus(order);
-      if (terminalTrackingStatuses.has(currentStatus)) continue;
+      if (currentStatus === "draft" || terminalTrackingStatuses.has(currentStatus)) continue;
       try {
         const update = await trackingUpdateFor(order);
         checked += 1;
@@ -878,6 +878,75 @@ app.post("/api/provider-orders", (req, res) => {
   providerOrders.set(String(order.id), order);
   persistProviderOrders();
   return res.status(201).json({ order: publicOrder(order) });
+});
+
+app.post("/api/provider-orders/drafts", (req, res) => {
+  const seller = requestSeller(req);
+  if (!seller) return res.status(401).json({ message: "Seller identity is required" });
+  const payload = req.body || {};
+  const orderId = String(payload.orderId || "").trim();
+  if (!orderId) return res.status(400).json({ message: "Order ID is required" });
+  const duplicate = [...providerOrders.values()].find((order) =>
+    String(order?.userId || "") === String(seller.id) &&
+    String(order?.orderId || "").toLowerCase() === orderId.toLowerCase() &&
+    dashboardStatus(order) !== "cancelled",
+  );
+  if (duplicate) return res.status(409).json({ message: `Order ID ${orderId} already exists` });
+
+  const now = new Date().toISOString();
+  const draft = {
+    id: `draft-${crypto.randomUUID()}`,
+    userId: seller.id,
+    user: seller,
+    orderId,
+    orderType: payload.orderType === "B2B" ? "B2B" : "B2C",
+    paymentType: payload.paymentType === "cod" ? "cod" : "prepaid",
+    status: "draft",
+    courierId: "",
+    courierName: null,
+    serviceProvider: "",
+    awb: "",
+    pickupAddressId: String(payload.pickupAddressId || ""),
+    deliveryAddress: {
+      contactName: String(payload.buyerName || ""),
+      phone: String(payload.buyerPhone || ""),
+      email: payload.buyerEmail ? String(payload.buyerEmail) : undefined,
+      addressLine1: String(payload.address || ""),
+      addressLine2: payload.address2 ? String(payload.address2) : undefined,
+      city: String(payload.city || ""),
+      state: String(payload.state || ""),
+      country: "India",
+      pincode: String(payload.pincode || ""),
+    },
+    weight: Number(payload.weight) || 0,
+    length: Number(payload.length) || 0,
+    breadth: Number(payload.breadth) || 0,
+    height: Number(payload.height) || 0,
+    chargeableWeight: 0,
+    products: Array.isArray(payload.products) ? payload.products : [],
+    orderAmount: Number(payload.orderAmount) || 0,
+    codAmount: Number(payload.codAmount) || 0,
+    rate: { forward: 0, rto: 0, codCharges: 0, otherCharges: 0, freightCharge: 0, totalCharge: 0, zone: "" },
+    companyName: payload.companyName,
+    companyGst: payload.companyGst,
+    packages: payload.packages,
+    invoices: payload.invoices,
+    draftPayload: payload,
+    createdAt: now,
+    updatedAt: now,
+  };
+  providerOrders.set(draft.id, draft);
+  persistProviderOrders();
+  return res.status(201).json({ order: publicOrder(draft) });
+});
+
+app.delete("/api/provider-orders/:id/draft", (req, res) => {
+  const order = findProviderOrder(req.params.id);
+  if (!order || !canAccessProviderOrder(req, order)) return res.status(404).json({ message: "Draft not found" });
+  if (dashboardStatus(order) !== "draft") return res.status(409).json({ message: "Only draft orders can be removed" });
+  providerOrders.delete(String(order.id));
+  persistProviderOrders();
+  return res.json({ success: true });
 });
 
 app.get("/api/provider-orders/:id/tracking", async (req, res, next) => {

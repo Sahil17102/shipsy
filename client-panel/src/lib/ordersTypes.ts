@@ -1,4 +1,5 @@
 export type OrderStatus =
+  | "draft"
   | "created"
   | "processing"
   | "booked"
@@ -98,6 +99,8 @@ export interface Order {
   packages?: OrderPackage[];
   invoices?: OrderInvoice[];
   chargesBreakdown?: ChargesBreakdown;
+  /** Original shipment details retained until a draft is booked with a courier. */
+  draftPayload?: DraftOrderPayload;
 }
 
 export interface TrackingEvent {
@@ -189,3 +192,8 @@ export interface CreateOrderPayload {
   invoices?: OrderInvoice[];
   chargesBreakdown?: ChargesBreakdown;
 }
+
+export type DraftOrderPayload = Omit<
+  CreateOrderPayload,
+  "chargeableWeight" | "courierId" | "courierName" | "serviceProvider" | "rate" | "chargesBreakdown"
+>;
