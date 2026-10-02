@@ -428,7 +428,10 @@ function trackingStatus(value) {
 }
 
 app.get("/api/provider-orders", (_req, res) => {
-  res.json({ orders: [...providerOrders.values()].map(publicOrder) });
+  const orders = [...providerOrders.values()]
+    .map(publicOrder)
+    .sort((left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime());
+  res.json({ orders });
 });
 
 app.post("/api/provider-orders", (req, res) => {

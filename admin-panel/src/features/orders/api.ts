@@ -173,6 +173,17 @@ export const ordersApi = {
       if (params?.status) orders = orders.filter((order) => order.status === params.status);
       if (params?.orderType) orders = orders.filter((order) => order.orderType === params.orderType);
       if (params?.paymentType) orders = orders.filter((order) => order.paymentType === params.paymentType);
+      const sortField = params?.sortField ?? "createdAt";
+      const direction = (params?.sortOrder ?? "desc") === "asc" ? 1 : -1;
+      orders.sort((left, right) => {
+        const leftValue = sortField === "rate.totalCharge"
+          ? Number(left.rate.totalCharge || 0)
+          : new Date(left.createdAt).getTime();
+        const rightValue = sortField === "rate.totalCharge"
+          ? Number(right.rate.totalCharge || 0)
+          : new Date(right.createdAt).getTime();
+        return (leftValue - rightValue) * direction;
+      });
       const stats = emptyOrderStats();
       stats.total = orders.length;
       orders.forEach((order) => {
