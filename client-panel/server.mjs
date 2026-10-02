@@ -223,6 +223,20 @@ async function readUpstream(response) {
   return { body, contentType };
 }
 
+function upstreamErrorMessage(body, fallback) {
+  if (typeof body === "string" && body.trim()) return body.trim();
+  if (body && typeof body === "object") {
+    for (const key of ["message", "error", "detail", "prepaid", "cod", "response", "remark", "remarks"]) {
+      const value = body[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    for (const value of Object.values(body)) {
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+  }
+  return fallback;
+}
+
 let teampafexToken = "";
 // Provider-created orders are mirrored here so the client and admin panels
 // share the same order list even when the upstream courier has no list API.
@@ -359,7 +373,12 @@ app.post("/api/providers/delhivery/pickup-request", async (req, res, next) => {
       }),
     });
     const { body, contentType } = await readUpstream(response);
-    if (!response.ok) return res.status(response.status).type(contentType || "application/json").send(body);
+    if (!response.ok) {
+      return res.status(response.status).json({
+        message: upstreamErrorMessage(body, `Delhivery pickup request failed (${response.status})`),
+        provider: "delhivery",
+      });
+    }
     return res.status(response.status).json({ success: true, pickup: body });
   } catch (error) { next(error); }
 });
