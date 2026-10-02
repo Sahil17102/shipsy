@@ -481,6 +481,176 @@ app.get("/api/provider-orders", (req, res) => {
   res.json({ orders });
 });
 
+function dashboardNumber(value) {
+  const result = Number(value);
+  return Number.isFinite(result) ? result : 0;
+}
+
+function dashboardRevenue(order) {
+  return dashboardNumber(order?.rate?.totalCharge ?? order?.totalCharge ?? order?.shippingCharge);
+}
+
+function dashboardCost(order) {
+  return dashboardNumber(order?.rate?.freightCharge ?? order?.rate?.forward ?? order?.freightCharge);
+}
+
+function dashboardStatus(order) {
+  return String(order?.status || "processing").trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function dashboardDate(order) {
+  const value = new Date(order?.createdAt || order?.created_at || 0);
+  return Number.isNaN(value.getTime()) ? null : value;
+}
+
+function dashboardRound(value, digits = 2) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function dashboardData(req) {
+  const days = Math.min(365, Math.max(1, Math.trunc(dashboardNumber(req.query?.days) || 30)));
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const periodStart = new Date(todayStart.getTime() - (days - 1) * 86_400_000);
+  const previousStart = new Date(periodStart.getTime() - days * 86_400_000);
+  const serviceProvider = String(req.query?.serviceProvider || "").trim().toLowerCase();
+  const paymentType = String(req.query?.paymentType || "").trim().toLowerCase();
+  const matchesFilters = (order) => {
+    const courier = String(order?.serviceProvider || order?.courierName || "").trim().toLowerCase();
+    const payment = String(order?.paymentType || "prepaid").trim().toLowerCase();
+    return (!serviceProvider || courier === serviceProvider) && (!paymentType || payment === paymentType);
+  };
+  const datedOrders = [...providerOrders.values()]
+    .filter(matchesFilters)
+    .map((order) => ({ order, date: dashboardDate(order) }))
+    .filter((entry) => entry.date);
+  const current = datedOrders.filter(({ date }) => date >= periodStart && date <= now).map(({ order }) => order);
+  const previous = datedOrders.filter(({ date }) => date >= previousStart && date < periodStart).map(({ order }) => order);
+  const deliveredStatuses = new Set(["delivered"]);
+  const failedStatuses = new Set(["cancelled", "ndr", "rto_initiated", "rto_in_transit", "rto_delivered", "lost"]);
+  const isDelivered = (order) => deliveredStatuses.has(dashboardStatus(order));
+  const isFailed = (order) => failedStatuses.has(dashboardStatus(order));
+  const sumRevenue = (orders) => dashboardRound(orders.reduce((sum, order) => sum + dashboardRevenue(order), 0));
+  const deliveryRate = (orders) => {
+    const completed = orders.filter((order) => isDelivered(order) || isFailed(order));
+    return completed.length ? dashboardRound((completed.filter(isDelivered).length / completed.length) * 100, 1) : 0;
+  };
+  const averageDeliveryDays = (orders) => {
+    const durations = orders.filter(isDelivered).map((order) => {
+      const start = dashboardDate(order);
+      const end = new Date(order?.deliveredAt || order?.updatedAt || 0);
+      return start && !Number.isNaN(end.getTime()) ? Math.max(0, (end.getTime() - start.getTime()) / 86_400_000) : null;
+    }).filter((value) => value != null);
+    return durations.length ? dashboardRound(durations.reduce((sum, value) => sum + value, 0) / durations.length, 1) : null;
+  };
+  const groupBy = (orders, keyFor) => {
+    const groups = new Map();
+    orders.forEach((order) => {
+      const key = keyFor(order);
+      groups.set(key, [...(groups.get(key) || []), order]);
+    });
+    return groups;
+  };
+  const courierName = (order) => String(order?.serviceProvider || order?.courierName || "unknown").trim() || "unknown";
+  const courierGroups = groupBy(current, courierName);
+  const courierInsights = [...courierGroups.entries()].map(([courier, orders]) => {
+    const delivered = orders.filter(isDelivered).length;
+    const failed = orders.filter(isFailed).length;
+    const completed = delivered + failed;
+    return {
+      courier, totalOrders: orders.length, delivered, failed,
+      successRate: completed ? dashboardRound((delivered / completed) * 100, 1) : 0,
+      failureRate: completed ? dashboardRound((failed / completed) * 100, 1) : 0,
+      revenue: sumRevenue(orders), avgDeliveryDays: averageDeliveryDays(orders),
+    };
+  }).sort((left, right) => right.totalOrders - left.totalOrders);
+  const margins = [...courierGroups.entries()].map(([courier, orders]) => {
+    const revenue = sumRevenue(orders);
+    const cost = dashboardRound(orders.reduce((sum, order) => sum + dashboardCost(order), 0));
+    const margin = dashboardRound(revenue - cost);
+    return {
+      courier, revenue, cost, margin,
+      marginPercent: revenue ? dashboardRound((margin / revenue) * 100, 1) : 0,
+      orderCount: orders.length,
+      revenuePerOrder: orders.length ? dashboardRound(revenue / orders.length) : 0,
+    };
+  }).sort((left, right) => right.revenue - left.revenue);
+  const totalRevenue = sumRevenue(current);
+  const totalCost = dashboardRound(current.reduce((sum, order) => sum + dashboardCost(order), 0));
+  const totalMargin = dashboardRound(totalRevenue - totalCost);
+  const sellerById = new Map(sellerRegistry.list().map((seller) => [String(seller.id), seller]));
+  const sellerGroups = groupBy(current.filter((order) => order?.userId), (order) => String(order.userId));
+  const sellerRows = [...sellerGroups.entries()].map(([id, orders]) => {
+    const seller = sellerById.get(id) || orders[0]?.user || {};
+    const rto = orders.filter((order) => dashboardStatus(order).startsWith("rto_")).length;
+    return {
+      id, name: seller.name || seller.businessName || seller.email || "Seller", email: seller.email || "",
+      totalOrders: orders.length, delivered: orders.filter(isDelivered).length, rto,
+      revenue: sumRevenue(orders), rtoRate: orders.length ? dashboardRound((rto / orders.length) * 100, 1) : 0,
+    };
+  }).sort((left, right) => right.revenue - left.revenue);
+  const startDay = new Date(periodStart);
+  const trends = [];
+  for (let index = 0; index < days; index += 1) {
+    const date = new Date(startDay.getTime() + index * 86_400_000);
+    const dateKey = date.toISOString().slice(0, 10);
+    const orders = current.filter((order) => dashboardDate(order)?.toISOString().slice(0, 10) === dateKey);
+    trends.push({
+      date: dateKey, orders: orders.length, delivered: orders.filter(isDelivered).length,
+      rto: orders.filter((order) => dashboardStatus(order).startsWith("rto_")).length,
+      revenue: sumRevenue(orders),
+    });
+  }
+  const statusDistribution = [...groupBy(current, dashboardStatus).entries()]
+    .map(([status, orders]) => ({ status, count: orders.length }))
+    .sort((left, right) => right.count - left.count);
+  const stateGroups = groupBy(current, (order) => String(order?.deliveryAddress?.state || "Unknown").trim() || "Unknown");
+  const topStates = [...stateGroups.entries()].map(([state, orders]) => ({
+    state, orders: orders.length, deliveryRate: deliveryRate(orders), revenue: sumRevenue(orders),
+  })).sort((left, right) => right.orders - left.orders).slice(0, 10);
+  const paymentBucket = (type) => {
+    const orders = current.filter((order) => String(order?.paymentType || "prepaid").toLowerCase() === type);
+    return {
+      orders: orders.length, delivered: orders.filter(isDelivered).length, revenue: sumRevenue(orders),
+      codAmount: dashboardRound(orders.reduce((sum, order) => sum + dashboardNumber(order?.codAmount), 0)),
+    };
+  };
+  let kycRecords = {};
+  try { kycRecords = JSON.parse(fs.readFileSync(path.join(dataDir, "kyc.json"), "utf8")); } catch { /* optional data */ }
+  const kycPending = Object.values(kycRecords).filter((record) => record?.status === "pending").length;
+  const delayedShipments = current.filter((order) => {
+    const status = dashboardStatus(order);
+    const created = dashboardDate(order);
+    return created && ["pickup_initiated", "shipped", "in_transit", "out_for_delivery"].includes(status) && now.getTime() - created.getTime() > 5 * 86_400_000;
+  }).length;
+  const ndrPending = current.filter((order) => dashboardStatus(order) === "ndr").length;
+  const failureSpikes = courierInsights.filter((item) => item.failed > 0 && item.failureRate >= 20).map((item) => ({
+    courier: item.courier, total: item.totalOrders, failed: item.failed, failureRate: item.failureRate,
+  }));
+  const todayKey = now.toISOString().slice(0, 10);
+  return {
+    overview: {
+      totalOrders: current.length, previousOrders: previous.length,
+      ordersToday: current.filter((order) => dashboardDate(order)?.toISOString().slice(0, 10) === todayKey).length,
+      activeSellers: sellerGroups.size, revenue: totalRevenue, previousRevenue: sumRevenue(previous),
+      deliveryRate: deliveryRate(current), previousDeliveryRate: deliveryRate(previous), avgDeliveryDays: averageDeliveryDays(current),
+    },
+    courierInsights, trends,
+    revenue: { margins, totalRevenue, totalCost, totalMargin },
+    sellers: { topSellers: sellerRows.slice(0, 10), highRtoSellers: sellerRows.filter((seller) => seller.rtoRate >= 15).slice(0, 10) },
+    alerts: { failureSpikes, delayedShipments, ndrPending, totalAlerts: failureSpikes.length + delayedShipments + ndrPending },
+    pendingActions: { kycPending, bankApprovalsPending: 0, codRemittancesPending: 0 },
+    paymentSplit: { prepaid: paymentBucket("prepaid"), cod: paymentBucket("cod") },
+    topStates, statusDistribution,
+  };
+}
+
+app.get("/api/admin/dashboard", (req, res, next) => {
+  try { return res.json(dashboardData(req)); } catch (error) { return next(error); }
+});
+
 app.post("/api/provider-orders", (req, res) => {
   const order = providerOrderOwner(req, req.body);
   if (!order || !order.id) return res.status(400).json({ message: "Order id is required" });
