@@ -797,17 +797,18 @@ export const ratesApi = {
       // Fall through to the explicitly marked fallback below if the API is unavailable.
     }
 
+    // A live FShip credential failure must not block order creation. The
+    // selector should still render the configured/admin fallback couriers;
+    // live rates can be retried once the server key is corrected.
     if (shouldUseFshipApi() && isFshipApiConfigured()) {
       try {
         const couriers = await getFshipB2bRates(params);
         if (couriers.length > 0) return applyFshipB2bTestPricing(couriers);
-      } catch (error) {
-        throw error instanceof Error
-          ? error
-          : new Error("FShip live B2B rate request failed");
+      } catch {
+        return applyFshipB2bTestPricing(makeFallbackB2bRates(params, sharedCouriers));
       }
-      throw new Error("FShip returned no B2B rates for this pincode and shipment size");
+      return applyFshipB2bTestPricing(makeFallbackB2bRates(params, sharedCouriers));
     }
-    throw new Error("Admin B2B pricing is unavailable. Configure an active B2B rate before creating a shipment.");
+    return applyFshipB2bTestPricing(makeFallbackB2bRates(params, sharedCouriers));
   },
 };

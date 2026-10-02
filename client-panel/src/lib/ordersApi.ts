@@ -489,11 +489,11 @@ async function createDelhiveryOrder(data: CreateOrderPayload): Promise<Order> {
     weight: data.weight,
     shipping_mode: "Surface",
   };
-  const response = await axios.post<{
+  const response = await api.post<{
     success?: boolean;
     packages?: Array<{ waybill?: string; status?: string; remarks?: string }>;
     rmks?: string;
-  }>("https://shipsy-courier-api.onrender.com/api/providers/delhivery/create-order", {
+  }>("/providers/delhivery/create-order", {
     shipments: [shipment],
     pickup_location: { name: pickupName },
   }, { timeout: 60_000 });
@@ -1065,8 +1065,8 @@ export const ordersApi = {
     const delhiveryOrders = selectedOrders.filter((order) => order.serviceProvider?.toLowerCase() === "delhivery");
     if (delhiveryOrders.length === orderIds.length && delhiveryOrders.length > 0) {
       try {
-        await axios.post(
-          "https://shipsy-courier-api.onrender.com/api/providers/delhivery/pickup-request",
+        await api.post(
+          "/providers/delhivery/pickup-request",
           { expected_package_count: delhiveryOrders.length },
           { timeout: 60_000 },
         );
@@ -1232,7 +1232,10 @@ export const ordersApi = {
       const order = await ordersApi.getById(id);
       // Delhivery orders are created through the Delhivery proxy and must not
       // be sent to the Teampafex cancellation endpoint.
-      if (order.serviceProvider !== "delhivery") {
+      if (order.serviceProvider === "delhivery") {
+        if (!order.awb) throw new Error("Delhivery AWB is missing; shipment was not cancelled");
+        await api.post("/providers/delhivery/cancel-order", { waybill: order.awb });
+      } else {
         await courierApi.cancelOrder(extractProviderOrderId(id));
       }
       const updated = { ...order, status: "cancelled" as const, cancelledAt: new Date().toISOString() };
@@ -1256,6 +1259,29 @@ export const ordersApi = {
     }
 
     if (shouldUseCourierApi()) {
+      const order = await ordersApi.getById(id);
+      if (order.serviceProvider === "delhivery") {
+        if (!order.awb) return [];
+        const { data } = await api.get("/providers/delhivery/track", { params: { waybill: order.awb } });
+        const shipmentData = Array.isArray(data?.ShipmentData) ? data.ShipmentData : [];
+        const scans = shipmentData.flatMap((entry: any) => Array.isArray(entry?.Shipment?.Scans) ? entry.Shipment.Scans : []);
+        return scans.map((entry: any, index: number) => {
+          const scan = entry?.ScanDetail ?? entry;
+          const statusText = String(scan?.Scan || scan?.Instructions || scan?.Status || "Shipment update");
+          return {
+            id: `${order.awb}-${index}`,
+            orderId: order.id,
+            awb: order.awb,
+            statusCode: mapProviderStatus(statusText),
+            statusText,
+            location: scan?.ScannedLocation || scan?.ScanLocation,
+            remarks: scan?.Instructions,
+            source: "delhivery",
+            eventTimestamp: scan?.ScanDateTime,
+            createdAt: scan?.ScanDateTime || new Date().toISOString(),
+          };
+        });
+      }
       const providerOrderId = extractProviderOrderId(id);
       const data = await courierApi.trackOrder(providerOrderId);
       return [{

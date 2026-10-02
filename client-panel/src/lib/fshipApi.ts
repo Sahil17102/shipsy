@@ -2,10 +2,9 @@ import axios from "axios";
 
 // Keep the private FShip signature on the Shipsy server. The browser should
 // call the same-origin proxy, which forwards authenticated requests upstream.
-// The client panel is deployed as a static Render service, so relative
-// `/api/*` URLs are handled by the SPA fallback and never reach the courier
-// proxy. Keep the provider proxy on the dedicated API service by default.
-const DEFAULT_FSHIP_API_URL = "https://shipsy-courier-api.onrender.com/api/providers/fship";
+// Keep the private FShip signature on the dedicated ShipSy VPS API service;
+// the browser never receives the provider credential.
+const DEFAULT_FSHIP_API_URL = `${(import.meta.env.VITE_API_URL || "https://api.goshipsy.in/api").replace(/\/+$/, "")}/providers/fship`;
 const FS_TOKEN_STORAGE_KEY = "shipsy-fship-signature";
 const FS_WAREHOUSE_STORAGE_KEY = "shipsy-fship-warehouses";
 const FS_ORDERS_STORAGE_KEY = "shipsy-fship-created-orders";
@@ -16,7 +15,9 @@ const fshipApiBaseUrl = (
 
 const fshipSignature = import.meta.env.VITE_FSHIP_CLIENT_KEY || import.meta.env.VITE_FSHIP_SIGNATURE || "";
 const fshipEnabled = import.meta.env.VITE_FSHIP_API_ENABLED ?? import.meta.env.VITE_LOGIXMITRA_API_ENABLED;
-const serverManagedFship = fshipApiBaseUrl.includes("shipsy-courier-api.onrender.com") || fshipApiBaseUrl.startsWith("/");
+const serverManagedFship =
+  fshipApiBaseUrl.includes("api.goshipsy.in") ||
+  fshipApiBaseUrl.startsWith("/");
 
 function readStored(key: string): string {
   if (typeof window === "undefined") return "";
