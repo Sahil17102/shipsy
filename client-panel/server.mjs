@@ -428,6 +428,17 @@ function publicOrder(order) {
 }
 
 function providerOrderOwner(req, order) {
+  const existing = order?.id ? providerOrders.get(String(order.id)) : null;
+  const existingSeller = existing
+    ? sellerRegistry.list().find((item) => String(item?.id || "") === String(existing.userId || ""))
+    : null;
+  // Browser-local provider stores may replay older copies of an order. Once
+  // the shared VPS record has a real seller, never allow that replay to erase
+  // or reassign ownership. Seller identity is established at the first
+  // authenticated mirror write (or by a controlled legacy backfill).
+  if (existingSeller) {
+    return { ...order, userId: existingSeller.id, user: existingSeller };
+  }
   const requestedId = String(req.get("x-shipsy-user-id") || "").trim();
   const requestedEmail = normalizedEmail(req.get("x-shipsy-user-email"));
   const seller = (requestedId && sellerRegistry.list().find((item) => String(item?.id || "") === requestedId))
