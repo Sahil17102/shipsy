@@ -427,6 +427,23 @@ function publicOrder(order) {
   return seller ? { ...order, user: seller } : order;
 }
 
+function requestSeller(req) {
+  const requestedId = String(req.get("x-shipsy-user-id") || "").trim();
+  const requestedEmail = normalizedEmail(req.get("x-shipsy-user-email"));
+  return (requestedId && sellerRegistry.list().find((item) => String(item?.id || "") === requestedId))
+    || (requestedEmail && sellerRegistry.findByEmail(requestedEmail))
+    || null;
+}
+
+function hasSellerIdentity(req) {
+  return Boolean(String(req.get("x-shipsy-user-id") || "").trim() || normalizedEmail(req.get("x-shipsy-user-email")));
+}
+
+function canAccessProviderOrder(req, order) {
+  const seller = requestSeller(req);
+  return !hasSellerIdentity(req) || Boolean(seller && String(order?.userId || "") === String(seller.id));
+}
+
 function providerOrderOwner(req, order) {
   const existing = order?.id ? providerOrders.get(String(order.id)) : null;
   const existingSeller = existing
@@ -439,10 +456,7 @@ function providerOrderOwner(req, order) {
   if (existingSeller) {
     return { ...order, userId: existingSeller.id, user: existingSeller };
   }
-  const requestedId = String(req.get("x-shipsy-user-id") || "").trim();
-  const requestedEmail = normalizedEmail(req.get("x-shipsy-user-email"));
-  const seller = (requestedId && sellerRegistry.list().find((item) => String(item?.id || "") === requestedId))
-    || (requestedEmail && sellerRegistry.findByEmail(requestedEmail));
+  const seller = requestSeller(req);
   return seller ? { ...order, userId: seller.id, user: seller } : order;
 }
 
@@ -457,8 +471,11 @@ function trackingStatus(value) {
   return "processing";
 }
 
-app.get("/api/provider-orders", (_req, res) => {
+app.get("/api/provider-orders", (req, res) => {
+  const seller = requestSeller(req);
+  const sellerScopedRequest = hasSellerIdentity(req);
   const orders = [...providerOrders.values()]
+    .filter((order) => !sellerScopedRequest || Boolean(seller && String(order?.userId || "") === String(seller.id)))
     .map(publicOrder)
     .sort((left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime());
   res.json({ orders });
@@ -475,7 +492,7 @@ app.post("/api/provider-orders", (req, res) => {
 app.get("/api/provider-orders/:id/tracking", async (req, res, next) => {
   try {
     const order = findProviderOrder(req.params.id);
-    if (!order) return res.status(404).json({ message: "Provider order not found" });
+    if (!order || !canAccessProviderOrder(req, order)) return res.status(404).json({ message: "Provider order not found" });
     const provider = String(order.serviceProvider || "").toLowerCase();
     const awb = String(order.awb || "").trim();
 
@@ -513,7 +530,7 @@ app.get("/api/provider-orders/:id/tracking", async (req, res, next) => {
 app.post("/api/provider-orders/:id/cancel", async (req, res, next) => {
   try {
     const order = findProviderOrder(req.params.id);
-    if (!order) return res.status(404).json({ message: "Provider order not found" });
+    if (!order || !canAccessProviderOrder(req, order)) return res.status(404).json({ message: "Provider order not found" });
     if (String(order.serviceProvider || "").toLowerCase() === "delhivery") {
       const waybill = String(order.awb || "").trim();
       if (!waybill) return res.status(400).json({ message: "Delhivery AWB is missing; shipment was not cancelled" });
@@ -545,7 +562,7 @@ app.post("/api/provider-orders/pickup-initiated", (req, res) => {
   const updated = [];
   ids.forEach((id) => {
     const order = findProviderOrder(id);
-    if (!order) return;
+    if (!order || !canAccessProviderOrder(req, order)) return;
     const next = { ...order, status: "pickup_initiated", pickupRequestedAt: now, updatedAt: now };
     providerOrders.set(String(order.id), next);
     updated.push(next);
@@ -688,7 +705,7 @@ function findProviderOrder(id) {
 app.get("/api/provider-orders/:id/:document", async (req, res, next) => {
   try {
   const order = findProviderOrder(req.params.id);
-  if (!order || !["label", "invoice"].includes(req.params.document)) return res.status(404).json({ message: "Provider order document not found" });
+  if (!order || !canAccessProviderOrder(req, order) || !["label", "invoice"].includes(req.params.document)) return res.status(404).json({ message: "Provider order document not found" });
   const kind = req.params.document;
   const pdf = await orderPdf(order, kind);
   const storageKey = shipsyObjectKey("documents", kind, `${order.awb || order.orderId || order.id}.pdf`);
@@ -700,7 +717,7 @@ app.get("/api/provider-orders/:id/:document", async (req, res, next) => {
 app.post("/api/provider-orders/manifest", async (req, res, next) => {
   try {
     const ids = Array.isArray(req.body?.orderIds) ? req.body.orderIds.map(String) : [];
-    const orders = ids.map(findProviderOrder).filter(Boolean);
+    const orders = ids.map(findProviderOrder).filter((order) => order && canAccessProviderOrder(req, order));
     if (!orders.length) return res.status(404).json({ message: "No provider orders found for manifest" });
     const pdf = await manifestPdf(orders);
     const manifestId = crypto.createHash("sha256").update(ids.sort().join(":" )).digest("hex").slice(0, 20);

@@ -23,8 +23,6 @@ import {
 } from "./fshipApi";
 import { indiaPostApi, makeIndiaPostOrder } from "./indiaPostApi";
 
-const PROVIDER_ORDER_MIRROR_URL = `${(import.meta.env.VITE_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "")}/provider-orders`;
-
 async function mirrorProviderOrder(order: Order): Promise<void> {
   // Use the authenticated client so the shared service receives the seller
   // identity headers.  The mirror is what the admin panel reads, therefore an
@@ -835,39 +833,25 @@ function mapProviderOrder(raw: CourierRawOrder): Order {
 async function getProviderOrders(params?: OrderListParams): Promise<OrderListResponse> {
   let orders: Order[] = [];
   try {
-    const response = await courierApi.getOrders();
-    // Teampafex has returned both `{ orders: [] }` and `{ data: { orders: [] } }`
-    // over time.  Accept both shapes (and a bare array) so a successful
-    // provider response never gets mistaken for an empty order list.
-    const rawResponse = response as CourierOrdersResponse & {
-      data?: { orders?: CourierRawOrder[] } | CourierRawOrder[];
-    };
-    const providerOrders = Array.isArray(rawResponse)
-      ? rawResponse
-      : rawResponse.orders ?? (Array.isArray(rawResponse.data) ? rawResponse.data : rawResponse.data?.orders) ?? [];
-    orders = providerOrders.map(mapProviderOrder);
+    const mirror = await api.get<{ orders?: Order[] }>("/provider-orders", { timeout: 15_000 });
+    orders = mirror.data?.orders ?? [];
   } catch {
-    orders = [];
+    try {
+      const response = await courierApi.getOrders();
+      // Fallback only when the seller-scoped ShipSy mirror is unavailable.
+      const rawResponse = response as CourierOrdersResponse & {
+        data?: { orders?: CourierRawOrder[] } | CourierRawOrder[];
+      };
+      const providerOrders = Array.isArray(rawResponse)
+        ? rawResponse
+        : rawResponse.orders ?? (Array.isArray(rawResponse.data) ? rawResponse.data : rawResponse.data?.orders) ?? [];
+      orders = providerOrders.map(mapProviderOrder);
+    } catch {
+      orders = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
+    }
   }
 
-  try {
-    const mirror = await axios.get<{ orders?: Order[] }>(PROVIDER_ORDER_MIRROR_URL, { timeout: 15_000 });
-    const seen = new Set(orders.map((order) => order.id));
-    (mirror.data?.orders ?? []).forEach((order) => {
-      if (!seen.has(order.id)) orders.unshift(order);
-    });
-  } catch {
-    // Provider mirror is optional; continue with upstream/local orders.
-  }
-
-  const storedOrders = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
-  const seen = new Set(orders.map((order) => order.id));
-  storedOrders.forEach((order) => {
-    if (!seen.has(order.id)) orders.unshift(order);
-  });
-  // Rehydrate the shared mirror after a courier-service restart so the admin
-  // panel sees the same real shipments that remain in the seller browser.
-  await Promise.all(storedOrders.map((order) => mirrorProviderOrder(order)));
+  orders.sort((left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime());
 
   if (params?.status) orders = orders.filter((order) => order.status === params.status);
   if (params?.orderType) orders = orders.filter((order) => order.orderType === params.orderType);
@@ -977,7 +961,7 @@ export const ordersApi = {
     // Even when the main API feature flag is disabled, provider-created
     // shipments must remain visible in the seller's order list.
     try {
-      const mirror = await axios.get<{ orders?: Order[] }>(PROVIDER_ORDER_MIRROR_URL, { timeout: 15_000 });
+      const mirror = await api.get<{ orders?: Order[] }>("/provider-orders", { timeout: 15_000 });
       const mirrored = mirror.data?.orders ?? [];
       const existing = new Set(result.orders.map((order) => order.id));
       const merged = [...result.orders, ...mirrored.filter((order) => !existing.has(order.id))];
@@ -992,20 +976,17 @@ export const ordersApi = {
   },
 
   getById: async (id: string): Promise<Order> => {
-    const fshipMatch = fshipApi
-      .readStoredOrders<Order & { providerOrderId: string }>()
-      .find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
-    if (fshipMatch) return fshipMatch;
-
     if (shouldUseCourierApi()) {
-      const stored = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
-      const match = stored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id);
-      if (match) return match;
       const orders = await getProviderOrders({ search: id, page: 1, limit: 1 });
       const order = orders.orders[0];
       if (!order) throw new Error("Order not found");
       return order;
     }
+
+    const fshipMatch = fshipApi
+      .readStoredOrders<Order & { providerOrderId: string }>()
+      .find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
+    if (fshipMatch) return fshipMatch;
 
     const { data } = await api.get(`/orders/${id}`);
     return data.order as Order;
@@ -1013,7 +994,7 @@ export const ordersApi = {
 
   downloadLabel: async (id: string, awb: string): Promise<void> => {
     try {
-      const { data } = await axios.get(`${PROVIDER_ORDER_MIRROR_URL}/${encodeURIComponent(awb || id)}/label`, { responseType: "blob", timeout: 15_000 });
+      const { data } = await api.get(`/provider-orders/${encodeURIComponent(awb || id)}/label`, { responseType: "blob", timeout: 15_000 });
       downloadBlob(data, `label-${(awb || id).replace(/[^\w.-]+/g, "_")}.pdf`);
       return;
     } catch {
@@ -1025,7 +1006,7 @@ export const ordersApi = {
 
   downloadInvoice: async (id: string, orderId: string): Promise<void> => {
     try {
-      const { data } = await axios.get(`${PROVIDER_ORDER_MIRROR_URL}/${encodeURIComponent(orderId || id)}/invoice`, { responseType: "blob", timeout: 15_000 });
+      const { data } = await api.get(`/provider-orders/${encodeURIComponent(orderId || id)}/invoice`, { responseType: "blob", timeout: 15_000 });
       downloadBlob(data, `invoice-${(orderId || id).replace(/[^\w.-]+/g, "_")}.pdf`);
       return;
     } catch {
@@ -1078,8 +1059,8 @@ export const ordersApi = {
           ...updated.map((order) => ({ ...order, providerOrderId: order.providerOrderId || order.id })),
           ...stored.filter((order) => !updatedById.has(order.id)),
         ]);
-        await axios.post(
-          `${PROVIDER_ORDER_MIRROR_URL}/pickup-initiated`,
+        await api.post(
+          "/provider-orders/pickup-initiated",
           { orderIds: updated.map((order) => order.id) },
           { timeout: 15_000 },
         );
@@ -1173,7 +1154,7 @@ export const ordersApi = {
   /** Download the pickup manifest for a single order. Same download-only rules as the bulk version. */
   downloadManifest: async (id: string, orderId: string): Promise<void> => {
     try {
-      const { data } = await axios.post(`${PROVIDER_ORDER_MIRROR_URL}/manifest`, { orderIds: [id] }, { responseType: "blob", timeout: 30_000 });
+      const { data } = await api.post("/provider-orders/manifest", { orderIds: [id] }, { responseType: "blob", timeout: 30_000 });
       downloadBlob(data, `manifest-${orderId.replace(/[^\w.-]+/g, "_")}.pdf`);
       return;
     } catch {
@@ -1190,7 +1171,7 @@ export const ordersApi = {
    */
   downloadBulkManifest: async (orderIds: string[]): Promise<void> => {
     try {
-      const { data } = await axios.post(`${PROVIDER_ORDER_MIRROR_URL}/manifest`, { orderIds }, { responseType: "blob", timeout: 30_000 });
+      const { data } = await api.post("/provider-orders/manifest", { orderIds }, { responseType: "blob", timeout: 30_000 });
       downloadBlob(data, `manifest-${orderIds.length}.pdf`);
       return;
     } catch {
