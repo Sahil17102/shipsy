@@ -403,16 +403,78 @@ app.get("/api/providers/delhivery/track", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+function publicOrder(order) {
+  const seller = sellerRegistry.list().find((item) => String(item?.id || "") === String(order?.userId || ""));
+  return seller ? { ...order, user: seller } : order;
+}
+
+function providerOrderOwner(req, order) {
+  const requestedId = String(req.get("x-shipsy-user-id") || "").trim();
+  const requestedEmail = normalizedEmail(req.get("x-shipsy-user-email"));
+  const seller = (requestedId && sellerRegistry.list().find((item) => String(item?.id || "") === requestedId))
+    || (requestedEmail && sellerRegistry.findByEmail(requestedEmail));
+  return seller ? { ...order, userId: seller.id, user: seller } : order;
+}
+
+function trackingStatus(value) {
+  const status = String(value || "").toLowerCase();
+  if (status.includes("deliver")) return status.includes("out for") ? "out_for_delivery" : "delivered";
+  if (status.includes("transit") || status.includes("dispatch")) return "in_transit";
+  if (status.includes("pickup") && !status.includes("scheduled")) return "shipped";
+  if (status.includes("manifest") || status.includes("scheduled")) return "booked";
+  if (status.includes("rto") || status.includes("return")) return "rto_initiated";
+  if (status.includes("cancel")) return "cancelled";
+  return "processing";
+}
+
 app.get("/api/provider-orders", (_req, res) => {
-  res.json({ orders: [...providerOrders.values()] });
+  res.json({ orders: [...providerOrders.values()].map(publicOrder) });
 });
 
 app.post("/api/provider-orders", (req, res) => {
-  const order = req.body;
+  const order = providerOrderOwner(req, req.body);
   if (!order || !order.id) return res.status(400).json({ message: "Order id is required" });
   providerOrders.set(String(order.id), order);
   persistProviderOrders();
-  return res.status(201).json({ order });
+  return res.status(201).json({ order: publicOrder(order) });
+});
+
+app.get("/api/provider-orders/:id/tracking", async (req, res, next) => {
+  try {
+    const order = findProviderOrder(req.params.id);
+    if (!order) return res.status(404).json({ message: "Provider order not found" });
+    const provider = String(order.serviceProvider || "").toLowerCase();
+    const awb = String(order.awb || "").trim();
+
+    if (provider === "delhivery") {
+      if (!awb) return res.json([]);
+      const target = new URL("https://track.delhivery.com/api/v1/packages/json/");
+      target.searchParams.set("waybill", awb);
+      const response = await fetch(target, {
+        headers: { Accept: "application/json", Authorization: `Token ${requireEnv("DELHIVERY_TOKEN")}` },
+      });
+      const { body } = await readUpstream(response);
+      if (!response.ok) return res.status(response.status).send(body);
+      const shipments = Array.isArray(body?.ShipmentData) ? body.ShipmentData : [];
+      const scans = shipments.flatMap((entry) => Array.isArray(entry?.Shipment?.Scans) ? entry.Shipment.Scans : []);
+      return res.json(scans.map((entry, index) => {
+        const scan = entry?.ScanDetail || entry || {};
+        const statusText = String(scan.Scan || scan.Instructions || scan.Status || "Shipment update");
+        const timestamp = scan.ScanDateTime || scan.StatusDateTime || new Date().toISOString();
+        return {
+          id: `${awb}-${index}`,
+          orderId: String(order.id), awb,
+          statusCode: trackingStatus(statusText), statusText,
+          location: scan.ScannedLocation || scan.ScanLocation || scan.StatusLocation,
+          remarks: scan.Instructions,
+          source: "delhivery", courierEventCode: scan.StatusCode,
+          eventTimestamp: timestamp, createdAt: timestamp,
+        };
+      }).sort((a, b) => new Date(b.eventTimestamp).getTime() - new Date(a.eventTimestamp).getTime()));
+    }
+
+    return res.json([]);
+  } catch (error) { next(error); }
 });
 
 app.post("/api/provider-orders/:id/cancel", async (req, res, next) => {

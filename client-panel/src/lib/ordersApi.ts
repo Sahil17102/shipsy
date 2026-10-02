@@ -26,7 +26,10 @@ import { indiaPostApi, makeIndiaPostOrder } from "./indiaPostApi";
 const PROVIDER_ORDER_MIRROR_URL = `${(import.meta.env.VITE_API_URL || "https://api.goshipsy.in/api").replace(/\/$/, "")}/provider-orders`;
 
 async function mirrorProviderOrder(order: Order): Promise<void> {
-  await axios.post(PROVIDER_ORDER_MIRROR_URL, order, { timeout: 15_000 }).catch(() => undefined);
+  // Use the authenticated client so the shared service receives the seller
+  // identity headers.  The mirror is what the admin panel reads, therefore an
+  // anonymous axios call loses who actually booked the shipment.
+  await api.post("/provider-orders", order, { timeout: 15_000 }).catch(() => undefined);
 }
 
 // Re-export types for backward compatibility

@@ -238,6 +238,10 @@ export const ordersApi = {
   // ── Tracking ──
 
   getTracking: async (id: string): Promise<TrackingEvent[]> => {
+    if (useStaticData) {
+      const { data } = await axios.get(`${PROVIDER_API_URL}/${encodeURIComponent(id)}/tracking`, { timeout: 60_000 });
+      return (Array.isArray(data) ? data : []) as TrackingEvent[];
+    }
     const { data } = await api.get(`/orders/${id}/tracking`);
     return data as TrackingEvent[];
   },

@@ -149,7 +149,7 @@ export interface TrackingEvent {
   statusText: string;
   location?: string;
   remarks?: string;
-  source: "webhook" | "admin" | "system" | "polling";
+  source: "webhook" | "admin" | "system" | "polling" | "delhivery" | "logixmitra" | "courier_api";
   courierEventCode?: string;
   eventTimestamp?: string;
   createdAt: string;
