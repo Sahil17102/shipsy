@@ -18,7 +18,7 @@ import { NotificationBell } from "@/components/common/NotificationBell";
 import { getActiveLabel } from "./sidebarConfig";
 import { useWalletBalance } from "@/queries/useWallet";
 import { formatCurrency, formatKeyword } from "@/lib/utils";
-import { api } from "@/lib/api";
+import { ordersApi } from "@/lib/ordersApi";
 
 interface DashboardHeaderProps {
   onMobileMenuOpen: () => void;
@@ -62,11 +62,20 @@ export function DashboardHeader({ onMobileMenuOpen, sidebarCollapsed, onToggleSi
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchRequestRef = useRef(0);
 
   useEffect(() => {
     if (searchOpen) setTimeout(() => inputRef.current?.focus(), 100);
-    else { setQuery(""); setResults([]); setSelectedIdx(-1); }
+    else {
+      searchRequestRef.current += 1;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      setQuery(""); setResults([]); setSelectedIdx(-1); setSearching(false);
+    }
   }, [searchOpen]);
+
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -86,16 +95,24 @@ export function DashboardHeader({ onMobileMenuOpen, sidebarCollapsed, onToggleSi
   }, []);
 
   const doSearch = useCallback(async (q: string) => {
-    if (q.length < 2) { setResults([]); setSearching(false); return; }
+    const term = q.trim();
+    const requestId = ++searchRequestRef.current;
+    if (term.length < 2) { setResults([]); setSearching(false); return; }
     setSearching(true);
     try {
-      const { data } = await api.get("/orders", { params: { search: q, limit: 5 } });
-      setResults((data.orders ?? []).map((o: any) => ({
+      // Use the same provider-aware source as the Orders page. Calling /orders
+      // directly misses shipments stored in the ShipSy provider mirror.
+      const data = await ordersApi.getAll({ search: term, page: 1, limit: 8 });
+      if (requestId !== searchRequestRef.current) return;
+      setResults(data.orders.map((o) => ({
         id: o.id, orderId: o.orderId, awb: o.awb, status: o.status,
         serviceProvider: o.serviceProvider, city: o.deliveryAddress?.city,
       })));
-    } catch { setResults([]); }
-    finally { setSearching(false); }
+    } catch {
+      if (requestId === searchRequestRef.current) setResults([]);
+    } finally {
+      if (requestId === searchRequestRef.current) setSearching(false);
+    }
   }, []);
 
   const onInput = (val: string) => {
@@ -107,8 +124,11 @@ export function DashboardHeader({ onMobileMenuOpen, sidebarCollapsed, onToggleSi
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIdx((p) => Math.min(p + 1, results.length - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setSelectedIdx((p) => Math.max(p - 1, -1)); }
-    else if (e.key === "Enter" && selectedIdx >= 0 && results[selectedIdx]) {
-      e.preventDefault(); navigate(`/orders/${results[selectedIdx].id}`); setSearchOpen(false);
+    else if (e.key === "Enter") {
+      const selected = results[selectedIdx >= 0 ? selectedIdx : 0];
+      if (selected) {
+        e.preventDefault(); navigate(`/orders/${selected.id}`); setSearchOpen(false);
+      }
     }
   };
 

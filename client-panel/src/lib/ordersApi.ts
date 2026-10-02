@@ -835,6 +835,38 @@ function mapProviderOrder(raw: CourierRawOrder): Order {
   };
 }
 
+function orderMatchesSearch(order: Order, search: string): boolean {
+  const query = search.trim().toLowerCase();
+  if (!query) return true;
+  const delivery = order.deliveryAddress;
+  const pickup = order.pickupAddress;
+  return [
+    order.id,
+    order.orderId,
+    order.providerOrderId,
+    order.awb,
+    order.courierName,
+    order.serviceProvider,
+    order.pickupAddressId,
+    delivery?.contactName,
+    delivery?.phone,
+    delivery?.email,
+    delivery?.addressLine1,
+    delivery?.addressLine2,
+    delivery?.city,
+    delivery?.state,
+    delivery?.pincode,
+    pickup?.nickname,
+    pickup?.contactName,
+    pickup?.phone,
+    pickup?.addressLine1,
+    pickup?.addressLine2,
+    pickup?.city,
+    pickup?.state,
+    pickup?.pincode,
+  ].some((value) => String(value ?? "").toLowerCase().includes(query));
+}
+
 async function getProviderOrders(params?: OrderListParams): Promise<OrderListResponse> {
   let orders: Order[] = [];
   try {
@@ -863,12 +895,7 @@ async function getProviderOrders(params?: OrderListParams): Promise<OrderListRes
   if (params?.paymentType) orders = orders.filter((order) => order.paymentType === params.paymentType);
   if (params?.pickupAddressId) orders = orders.filter((order) => order.pickupAddressId === params.pickupAddressId);
   if (params?.search) {
-    const query = params.search.toLowerCase();
-    orders = orders.filter((order) =>
-      [order.orderId, order.awb, order.deliveryAddress.contactName, order.deliveryAddress.phone]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query)),
-    );
+    orders = orders.filter((order) => orderMatchesSearch(order, params.search!));
   }
 
   const page = params?.page ?? 1;
@@ -978,12 +1005,7 @@ export const ordersApi = {
       if (params?.orderType) orders = orders.filter((order) => order.orderType === params.orderType);
       if (params?.paymentType) orders = orders.filter((order) => order.paymentType === params.paymentType);
       if (params?.search) {
-        const query = params.search.toLowerCase();
-        orders = orders.filter((order) =>
-          [order.orderId, order.awb, order.deliveryAddress.contactName, order.deliveryAddress.phone]
-            .filter(Boolean)
-            .some((value) => String(value).toLowerCase().includes(query)),
-        );
+        orders = orders.filter((order) => orderMatchesSearch(order, params.search!));
       }
       const page = params?.page ?? 1;
       const limit = params?.limit ?? 20;
@@ -1002,7 +1024,7 @@ export const ordersApi = {
     // shipments must remain visible in the seller's order list.
     try {
       const mirror = await api.get<{ orders?: Order[] }>("/provider-orders", { timeout: 15_000 });
-      const mirrored = mirror.data?.orders ?? [];
+      const mirrored = (mirror.data?.orders ?? []).filter((order) => !params?.search || orderMatchesSearch(order, params.search));
       const existing = new Set(result.orders.map((order) => order.id));
       const merged = [...result.orders, ...mirrored.filter((order) => !existing.has(order.id))];
       return {
