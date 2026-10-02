@@ -110,7 +110,7 @@ export default function OrdersPage() {
       width: 200,
       render: (_, record) => {
         const user = record.user;
-        const displayName = user?.businessName || user?.name || user?.email || user?.phone || "—";
+        const displayName = user?.name || user?.businessName || user?.email || user?.phone || "—";
         return (
           <div className="min-w-0">
             <span className="text-sm font-semibold text-foreground block truncate">

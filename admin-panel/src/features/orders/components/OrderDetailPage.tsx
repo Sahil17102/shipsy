@@ -345,8 +345,8 @@ export default function OrderDetailPage() {
 
         {/* ── Right column ── */}
         <div className="space-y-4">
-          {/* Customer */}
-          <Section icon={User} title="Customer">
+          {/* Seller who booked the shipment */}
+          <Section icon={User} title="Seller">
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">
                 {user?.name || user?.businessName || "—"}
