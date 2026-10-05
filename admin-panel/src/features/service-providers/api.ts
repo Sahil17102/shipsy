@@ -87,26 +87,26 @@ function defaultCredentials(): ProviderCredentialsResponse {
 function logixMitraCredentials(): ProviderCredentialsResponse {
   const fields: CredentialFieldDef[] = [
     { key: "baseUrl", label: "Base URL", type: "text", required: true },
-    { key: "publicKey", label: "Public Key", type: "text", required: false },
-    { key: "signature", label: "Private Key / Signature", type: "password", required: true },
+    { key: "email", label: "API Account Email", type: "text", required: true },
+    { key: "password", label: "API Account Password", type: "password", required: true },
   ];
   return {
     b2c: {
       fields,
       description: "Used for live FShip courier rates, shipment creation, pickup, cancellation, labels, and tracking.",
       values: {
-        baseUrl: "https://capi.fship.in/api",
-        publicKey: "",
-        signature: "",
+        baseUrl: "https://api.logixmitra.com/api",
+        email: "",
+        password: "",
       },
     },
     b2b: {
       fields,
       description: "B2B uses the same FShip API credentials by default.",
       values: {
-        baseUrl: "https://capi.fship.in/api",
-        publicKey: "",
-        signature: "",
+        baseUrl: "https://api.logixmitra.com/api",
+        email: "",
+        password: "",
       },
       sameAsB2c: true,
     },

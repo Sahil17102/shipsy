@@ -212,7 +212,7 @@ function getCourierDisplayName(courierId: string): string {
   if (id === "80") return "DLVY Standard";
   if (id === "152") return "Delhivery B2B";
   if (id === "161") return "Shadowfax";
-  if (courierId.toLowerCase().includes("logixmitra")) return "LogixMitra";
+  if (courierId.toLowerCase().includes("logixmitra")) return "FShip";
   return courierId || "Teampafex";
 }
 
@@ -368,13 +368,14 @@ async function resolveFshipPickupAddress(
     addressLine2: String(address.addressLine2 || ""),
     pincode: String(address.pincode || ""),
     city: String(address.city || ""),
+    state: String(address.state || ""),
     stateId: 0,
     countryId: 1,
     phoneNumber: String(address.phone || ""),
     email: String(address.email || ""),
   });
   if (!result.status || !result.warehouseId) {
-    throw new Error(result.response || "LogixMitra warehouse registration failed");
+    throw new Error(result.response || "Pickup location registration failed");
   }
 
   const providerWarehouseId = String(result.warehouseId);
@@ -408,7 +409,10 @@ function toFshipCreateForwardPayload(
     customer_Address_Type: "Home",
     customer_PinCode: data.pincode,
     customer_City: data.city,
+    customer_State: data.state,
+    addressLine2: data.address2 || "",
     orderId: data.orderId,
+    orderDate: data.orderDate,
     invoice_Number: firstInvoice?.invoiceNumber || data.orderId,
     payment_Mode: data.paymentType === "cod" ? 1 : 2,
     express_Type: "surface",
@@ -444,13 +448,13 @@ function toFshipCreateForwardPayload(
 
 async function createFshipOrder(data: CreateOrderPayload): Promise<Order> {
   if (!isFshipApiConfigured()) {
-    throw new Error("Real shipment was not sent to LogixMitra. Configure VITE_FSHIP_SIGNATURE or VITE_LOGIXMITRA_PRIVATE_KEY, then redeploy.");
+    throw new Error("Shipping provider is not configured on the ShipSy API server.");
   }
 
   const providerPickupAddress = await resolveFshipPickupAddress(data.pickupAddressId);
   const payload = toFshipCreateForwardPayload(data, providerPickupAddress);
   const result = await fshipApi.createForwardOrder(payload);
-  if (result.status === false) throw new Error(result.response || "LogixMitra order creation failed");
+  if (result.status === false) throw new Error(result.response || "Shipping provider order creation failed");
   const providerOrderId = String(result.apiorderid || `${data.orderId}-${Date.now()}`);
   const awb = String(result.waybill || "");
   const order = makeOrderFromPayload(data, providerOrderId, awb);
@@ -1090,7 +1094,7 @@ export const ordersApi = {
       if (!result.status) {
         return {
           ordersProcessed: 0,
-          errors: fshipOrders.map((order) => ({ awb: order.awb || order.orderId, error: result.response || "LogixMitra pickup registration failed" })),
+          errors: fshipOrders.map((order) => ({ awb: order.awb || order.orderId, error: result.response || "Pickup registration failed" })),
         };
       }
       const now = new Date().toISOString();
@@ -1265,7 +1269,7 @@ export const ordersApi = {
     const fshipStored = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
     const fshipOrder = fshipStored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
     if (fshipOrder) {
-      await fshipApi.cancelOrder(extractFshipProviderId(id), reason);
+      await fshipApi.cancelOrder(fshipOrder.orderId || fshipOrder.providerOrderId || id, reason);
       const updated = { ...fshipOrder, status: "cancelled" as const, cancelledAt: new Date().toISOString() };
       fshipApi.writeStoredOrders([updated, ...fshipStored.filter((item) => item.id !== updated.id)]);
       return updated;

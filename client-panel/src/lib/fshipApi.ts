@@ -77,7 +77,7 @@ function normalizeApiError(err: unknown): Error {
     (error as any).status = err.response?.status;
     return error;
   }
-  return err instanceof Error ? err : new Error("LogixMitra API request failed");
+  return err instanceof Error ? err : new Error("Shipping provider request failed");
 }
 
 const fshipHttp = axios.create({
@@ -120,6 +120,7 @@ export interface FshipWarehousePayload {
   addressLine2?: string;
   pincode: string;
   city: string;
+  state?: string;
   stateId?: number;
   countryId?: number;
   phoneNumber: string;
@@ -153,6 +154,9 @@ export interface FshipCreateForwardOrderPayload {
   customer_Address_Type?: string;
   customer_PinCode: string;
   customer_City?: string;
+  customer_State?: string;
+  addressLine2?: string;
+  orderDate?: string;
   orderId: string;
   invoice_Number?: string;
   payment_Mode: 1 | 2;
@@ -266,8 +270,8 @@ export const fshipApi = {
   createForwardOrder: (payload: FshipCreateForwardOrderPayload) =>
     fshipRequest<FshipCreateForwardOrderResponse>("post", "/createforwardorder", payload),
 
-  cancelOrder: (waybill: string, reason?: string) =>
-    fshipRequest<{ status: boolean; response?: string }>("post", "/cancelorder", { waybill, reason: reason || "" }),
+  cancelOrder: (referenceId: string, reason?: string) =>
+    fshipRequest<{ status: boolean; response?: string }>("post", "/cancelorder", { referenceId, reason: reason || "" }),
 
   registerPickup: (waybills: string[]) =>
     fshipRequest<{ status: boolean; response?: string; apipickuporderids?: Array<{ pickupOrderId: number | string; waybills: string[] }> }>(

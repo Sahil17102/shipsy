@@ -212,8 +212,50 @@ function requireEnv(name) {
   return value;
 }
 
-function getFshipClientKey() {
-  return requireEnv("FSHIP_CLIENT_KEY");
+const fshipApiBaseUrl = String(process.env.FSHIP_API_URL || "https://api.logixmitra.com/api").replace(/\/+$/, "");
+let fshipSession = { token: "", userId: "", expiresAt: 0 };
+
+async function getFshipSession(force = false) {
+  if (!force && fshipSession.token && fshipSession.expiresAt > Date.now()) return fshipSession;
+  const response = await fetch(`${fshipApiBaseUrl}/auth/login`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: requireEnv("FSHIP_API_EMAIL"),
+      password: requireEnv("FSHIP_API_PASSWORD"),
+    }),
+  });
+  const { body } = await readUpstream(response);
+  const token = String(body?.data?.token || "").trim();
+  if (!response.ok || !token) {
+    throw Object.assign(new Error(upstreamErrorMessage(body, "Shipping provider login failed")), { status: response.status || 502 });
+  }
+  fshipSession = {
+    token,
+    userId: String(body?.data?.user?.id || "").trim(),
+    // The documented lifetime is seven days; refresh a little early.
+    expiresAt: Date.now() + (6 * 24 * 60 * 60 * 1000),
+  };
+  return fshipSession;
+}
+
+async function fshipFetch(pathname, options = {}, authenticated = true) {
+  let session = authenticated ? await getFshipSession() : null;
+  const call = () => fetch(`${fshipApiBaseUrl}/${String(pathname).replace(/^\/+/, "")}`, {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(authenticated ? { Authorization: `Bearer ${session.token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  let response = await call();
+  if (authenticated && response.status === 401) {
+    session = await getFshipSession(true);
+    response = await call();
+  }
+  return response;
 }
 
 async function readUpstream(response) {
@@ -309,36 +351,191 @@ app.all("/api/providers/teampafex/*path", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.all(["/api/providers/fship/*path", "/api/providers/logixmitra/*path"], async (req, res, next) => {
+app.get(["/api/providers/fship/getallcourier", "/api/providers/logixmitra/getallcourier"], (_req, res) => {
+  // The new rate endpoint already returns the available courier names.
+  res.json([]);
+});
+
+app.post(["/api/providers/fship/ratecalculator", "/api/providers/logixmitra/ratecalculator"], async (req, res, next) => {
   try {
-    const pathPart = Array.isArray(req.params.path) ? req.params.path.join("/") : req.params.path;
-    const target = new URL(`/api/${pathPart}`, "https://capi.fship.in");
-    for (const [key, value] of Object.entries(req.query)) target.searchParams.set(key, String(value));
-    const signature = getFshipClientKey();
-    const response = await fetch(target, {
-      method: req.method,
-      headers: {
-        Accept: "application/json",
-        "Content-Type": req.get("content-type") || "application/json",
-        signature,
+    const payload = {
+      shipmentType: "FORWARD",
+      packageType: "SPS",
+      originPincode: String(req.body?.source_Pincode || ""),
+      deliveryPincode: String(req.body?.destination_Pincode || ""),
+      paymentMode: String(req.body?.payment_Mode || "").toUpperCase() === "COD" ? "COD" : "PREPAID",
+      weight: Number(req.body?.shipment_Weight || 0),
+      invoiceValue: Number(req.body?.amount || 0),
+      dimensions: {
+        length: Number(req.body?.shipment_Length || 0),
+        width: Number(req.body?.shipment_Width || 0),
+        height: Number(req.body?.shipment_Height || 0),
       },
-      body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body),
-    });
-    const { body, contentType } = await readUpstream(response);
-    console.info("FShip proxy request", {
-      credentialSource: "env:FSHIP_CLIENT_KEY",
-      signaturePresent: Boolean(signature),
-      baseUrl: "https://capi.fship.in",
-      endpoint: target.pathname,
-      method: req.method,
-      status: response.status,
-      response: typeof body === "string" ? body.slice(0, 200) : body?.message || body?.response || response.statusText,
-    });
-    if (!response.ok && (!body || body === "")) {
-      return res.status(response.status).json({ message: `FShip API returned ${response.status} ${response.statusText}`.trim() });
+      serviceType: "domestic",
+    };
+    const response = await fshipFetch("integrations/ratecalculate", { method: "POST", body: JSON.stringify(payload) }, false);
+    const { body } = await readUpstream(response);
+    if (!response.ok || body?.success === false) {
+      return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Live rate calculation failed") });
     }
-    res.status(response.status).type(contentType || "application/json").send(body);
+    const rates = Array.isArray(body?.data) ? body.data : [];
+    return res.json({
+      status: true,
+      shipment_rates: rates.map((rate) => ({
+        courier_name: String(rate?.type || "Shipping Partner"),
+        shipping_charge: Number(rate?.rates || 0),
+        cod_charge: 0,
+        rto_charge: 0,
+        service_mode: "surface",
+      })),
+    });
   } catch (error) { next(error); }
+});
+
+app.post(["/api/providers/fship/addwarehouse", "/api/providers/logixmitra/addwarehouse"], async (req, res, next) => {
+  try {
+    const session = await getFshipSession();
+    const payload = {
+      name: String(req.body?.warehouseName || "Pickup Location"),
+      address: [req.body?.addressLine1, req.body?.addressLine2].filter(Boolean).join(", "),
+      city: String(req.body?.city || ""),
+      state: String(req.body?.state || ""),
+      pincode: String(req.body?.pincode || ""),
+      contactPerson: String(req.body?.contactName || ""),
+      phone: String(req.body?.phoneNumber || "").replace(/\D/g, ""),
+      user_id: Number(session.userId),
+      isDefault: false,
+      isActive: true,
+    };
+    const response = await fshipFetch("auth/createWarehouse", { method: "POST", body: JSON.stringify(payload) });
+    const { body } = await readUpstream(response);
+    if (!response.ok || body?.success === false) {
+      return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Pickup location registration failed") });
+    }
+    return res.status(response.status).json({ status: true, warehouseId: body?.data?.id, response: body?.message });
+  } catch (error) { next(error); }
+});
+
+app.post(["/api/providers/fship/updatewarehouse", "/api/providers/logixmitra/updatewarehouse"], async (req, res, next) => {
+  try {
+    const warehouseId = String(req.body?.warehouseId || "").trim();
+    if (!warehouseId) return res.status(400).json({ status: false, response: "Pickup location id is required" });
+    const payload = {
+      name: String(req.body?.warehouseName || "Pickup Location"),
+      address: [req.body?.addressLine1, req.body?.addressLine2].filter(Boolean).join(", "),
+      city: String(req.body?.city || ""),
+      state: String(req.body?.state || ""),
+      pincode: String(req.body?.pincode || ""),
+      contactPerson: String(req.body?.contactName || ""),
+      phone: String(req.body?.phoneNumber || "").replace(/\D/g, ""),
+      isActive: true,
+    };
+    const response = await fshipFetch(`auth/updateWarehouse/${encodeURIComponent(warehouseId)}`, { method: "PUT", body: JSON.stringify(payload) });
+    const { body } = await readUpstream(response);
+    if (!response.ok || body?.success === false) {
+      return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Pickup location update failed") });
+    }
+    return res.status(response.status).json({ status: true, warehouseId, response: body?.message });
+  } catch (error) { next(error); }
+});
+
+app.post(["/api/providers/fship/createforwardorder", "/api/providers/logixmitra/createforwardorder"], async (req, res, next) => {
+  try {
+    const products = Array.isArray(req.body?.products) ? req.body.products : [];
+    const subtotal = products.reduce((sum, product) => sum + (Number(product?.unitPrice || 0) * Number(product?.quantity || 0)), 0);
+    const orderAmount = Number(req.body?.order_Amount || req.body?.total_Amount || subtotal || 0);
+    const payload = {
+      referenceId: String(req.body?.orderId || ""),
+      orderNumber: String(req.body?.orderId || ""),
+      orderDate: String(req.body?.orderDate || new Date().toISOString().slice(0, 10)),
+      customerName: String(req.body?.customer_Name || ""),
+      customerPhone: String(req.body?.customer_Mobile || "").replace(/\D/g, "").slice(-10),
+      customerEmail: String(req.body?.customer_Emailid || ""),
+      addressLine1: String(req.body?.customer_Address || ""),
+      addressLine2: String(req.body?.addressLine2 || ""),
+      landmark: String(req.body?.landMark || ""),
+      pincode: String(req.body?.customer_PinCode || ""),
+      city: String(req.body?.customer_City || ""),
+      state: String(req.body?.customer_State || ""),
+      paymentGateway: Number(req.body?.payment_Mode) === 1 ? "COD" : "Prepaid",
+      totalOutstanding: Number(req.body?.payment_Mode) === 1 ? Number(req.body?.cod_Amount || orderAmount) : 0,
+      amount: String(orderAmount),
+      subtotalPrice: subtotal || orderAmount,
+      totalTax: Number(req.body?.tax_Amount || 0),
+      totalShippingPrice: Number(req.body?.extra_Charges || 0),
+      totalDiscounts: products.reduce((sum, product) => sum + Number(product?.productDiscount || 0), 0),
+      currency: "INR",
+      warehouse: Number(req.body?.pick_Address_ID),
+      platform: "ShipSy",
+      items: products.map((product) => ({
+        name: String(product?.productName || "Item"),
+        sku: String(product?.sku || product?.productId || ""),
+        quantity: Number(product?.quantity || 1),
+        unitPrice: Number(product?.unitPrice || 0),
+        gstRate: Number(product?.taxRate || 0),
+        discount: Number(product?.productDiscount || 0),
+        deadWeight: Number(req.body?.shipment_Weight || 0),
+        length: Number(req.body?.shipment_Length || 0),
+        width: Number(req.body?.shipment_Width || 0),
+        height: Number(req.body?.shipment_Height || 0),
+      })),
+    };
+    const response = await fshipFetch("auth/manualcreateOrder", { method: "POST", body: JSON.stringify(payload) });
+    const { body } = await readUpstream(response);
+    if (!response.ok || body?.success === false) {
+      return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Order creation failed") });
+    }
+    const awb = String(body?.data?.awb || "").trim();
+    return res.status(response.status).json({
+      status: true,
+      response: body?.message,
+      apiorderid: body?.data?.id,
+      waybill: awb === "-" ? "" : awb,
+      order_status: body?.data?.status,
+    });
+  } catch (error) { next(error); }
+});
+
+app.post(["/api/providers/fship/cancelorder", "/api/providers/logixmitra/cancelorder"], async (req, res, next) => {
+  try {
+    const response = await fshipFetch("orders/cancelshipment", {
+      method: "PUT",
+      body: JSON.stringify({ referenceId: String(req.body?.referenceId || req.body?.waybill || "") }),
+    });
+    const { body } = await readUpstream(response);
+    return res.status(response.status).json({ status: response.ok && body?.success !== false, response: body?.message || body?.error });
+  } catch (error) { next(error); }
+});
+
+app.post(["/api/providers/fship/trackinghistory", "/api/providers/fship/shipmentsummary", "/api/providers/logixmitra/trackinghistory", "/api/providers/logixmitra/shipmentsummary"], async (req, res, next) => {
+  try {
+    const awb = String(req.body?.waybill || "").trim();
+    const response = await fshipFetch(`tracking/track/${encodeURIComponent(awb)}`, { method: "GET" }, false);
+    const { body } = await readUpstream(response);
+    if (!response.ok || body?.success === false) {
+      return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Tracking lookup failed") });
+    }
+    const data = body?.data || {};
+    return res.json({
+      status: true,
+      summary: {
+        waybill: data.awb || awb,
+        fulfilledby: data.courier,
+        status: data.currentStatus,
+        lastscandate: data.statusTime,
+      },
+      trackingdata: (Array.isArray(data.scanDetail) ? data.scanDetail : []).map((scan) => ({
+        DateandTime: scan?.date || scan?.timestamp || scan?.statusTime,
+        Status: scan?.status || scan?.currentStatus,
+        Remark: scan?.remark || scan?.remarks,
+        Location: scan?.location,
+      })),
+    });
+  } catch (error) { next(error); }
+});
+
+app.post(["/api/providers/fship/registerpickup", "/api/providers/logixmitra/registerpickup"], (_req, res) => {
+  res.status(501).json({ status: false, response: "Pickup booking requires an order booking payload from the shipping provider." });
 });
 
 
@@ -588,12 +785,11 @@ async function trackingUpdateFor(order) {
     return newestDelhiveryUpdate(body);
   }
   if (["fship", "logixmitra", "logix_mitra"].includes(provider)) {
-    const body = await fetchJson("https://capi.fship.in/api/shipmentsummary", {
-      method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", signature: getFshipClientKey() },
-      body: JSON.stringify({ waybill: awb }),
+    const body = await fetchJson(`${fshipApiBaseUrl}/tracking/track/${encodeURIComponent(awb)}`, {
+      headers: { Accept: "application/json" },
     });
-    const summary = body?.summary || {};
-    return { text: String(summary.status || body?.response || ""), timestamp: summary.lastscandate || summary.lastscanned || null, location: summary.location || null };
+    const summary = body?.data || {};
+    return { text: String(summary.currentStatus || body?.message || ""), timestamp: summary.statusTime || null, location: summary.location || null };
   }
   if (["teampafex", "courier_api"].includes(provider)) {
     const providerId = String(order.providerOrderId || order.id || "").replace(/^courier-/, "");

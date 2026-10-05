@@ -24,8 +24,8 @@ export function defaultCouriers(): CourierListItem[] {
   return [
     makeCourier("delhivery:b2c-surface", "Delhivery B2C Surface", "b2c", "delhivery", "Delhivery"),
     makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery"),
-    makeCourier("logixmitra:surface", "LogixMitra Surface", "b2c", "logixmitra", "LogixMitra"),
-    makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra"),
+    makeCourier("logixmitra:surface", "FShip Surface", "b2c", "logixmitra", "FShip"),
+    makeCourier("logixmitra:b2b-surface", "FShip B2B Surface", "b2b", "logixmitra", "FShip"),
     makeCourier("manual:80", "Standard Courier", "b2c"),
     makeCourier("manual:152", "B2B Freight", "b2b"),
     makeCourier("manual:161", "Local Express", "b2c"),
@@ -138,7 +138,7 @@ export function defaultB2bZoneRates(params?: {
 }): B2bZoneRate[] {
   const couriers = [
     makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery"),
-    makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra"),
+    makeCourier("logixmitra:b2b-surface", "FShip B2B Surface", "b2b", "logixmitra", "FShip"),
   ];
   const baseRates: Record<string, Record<string, number>> = {
     N: { N: 42, W: 52, S: 62, E: 58, NE: 78 },
@@ -203,7 +203,7 @@ export function defaultB2bPincodes(params?: {
   const south = DEFAULT_B2B_ZONES[2];
   const east = DEFAULT_B2B_ZONES[3];
   const delhiveryCourier = makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery");
-  const logixMitraCourier = makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra");
+  const logixMitraCourier = makeCourier("logixmitra:b2b-surface", "FShip B2B Surface", "b2b", "logixmitra", "FShip");
   const rows: B2bPincode[] = [
     makeB2bPincode("110001", "New Delhi", "Delhi", north, delhiveryCourier),
     makeB2bPincode("400001", "Mumbai", "Maharashtra", west, delhiveryCourier),
@@ -240,7 +240,7 @@ export function defaultB2bAdditionalCharges(params?: {
 }): B2bAdditionalCharge[] {
   const couriers = [
     makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery"),
-    makeCourier("logixmitra:b2b-surface", "LogixMitra B2B Surface", "b2b", "logixmitra", "LogixMitra"),
+    makeCourier("logixmitra:b2b-surface", "FShip B2B Surface", "b2b", "logixmitra", "FShip"),
   ];
   return couriers.map((courier): B2bAdditionalCharge => ({
     id: `seed-b2b-additional-${courier.serviceProvider}-basic`,
@@ -314,7 +314,7 @@ function defaultB2cPricing(): B2cPricingItem[] {
       [69, 55, 40, 2],
       [90, 70, 40, 2],
     ], "delhivery"),
-    makeB2cPricing("logixmitra:surface", "LogixMitra Surface", "surface", [
+    makeB2cPricing("logixmitra:surface", "FShip Surface", "surface", [
       [36, 30, 40, 2],
       [44, 36, 40, 2],
       [56, 46, 40, 2],

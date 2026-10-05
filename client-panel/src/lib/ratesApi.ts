@@ -526,7 +526,7 @@ async function enrichFshipRates(
 ): Promise<Array<FshipShipmentRate & { _courierId: string }>> {
   const couriers = await fshipApi.getCouriers().catch(() => []);
   return rates.map((rate, index) => {
-    const name = String(rate.courier_name || `LogixMitra ${index + 1}`).trim();
+    const name = String(rate.courier_name || `Shipping Partner ${index + 1}`).trim();
     const match = couriers.find((courier) => {
       const courierName = String(courier.courierName || "").trim().toLowerCase();
       return courierName === name.toLowerCase() ||
@@ -568,12 +568,12 @@ async function getFshipRates(params: AvailableCouriersParams): Promise<Available
     const mode = String(rate.service_mode || "surface").toLowerCase().includes("air") ? "air" : "surface";
     return {
       courierId: rate._courierId,
-      name: rate.courier_name || "LogixMitra",
+      name: rate.courier_name || "FShip",
       serviceProvider: "logixmitra",
-      serviceProviderDisplayName: "LogixMitra",
+      serviceProviderDisplayName: "FShip",
       logo: null,
       mode,
-      zone: { code: "LM", name: "LogixMitra Live Courier" },
+      zone: { code: "FS", name: "Live Courier" },
       chargeableWeight: Math.ceil(chargeableKg * 1000),
       minWeight: 500,
       rate: {
@@ -662,9 +662,9 @@ async function getFshipB2bRates(params: B2bAvailableCouriersParams): Promise<B2b
     const total = round(freight + cod);
     return {
       courierId: rate._courierId,
-      name: rate.courier_name || "LogixMitra",
+      name: rate.courier_name || "FShip",
       serviceProvider: "logixmitra",
-      serviceProviderDisplayName: "LogixMitra",
+      serviceProviderDisplayName: "FShip",
       logo: null,
       zone: {
         originCode: params.origin,
