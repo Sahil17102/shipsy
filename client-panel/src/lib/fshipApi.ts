@@ -178,6 +178,7 @@ export interface FshipCreateForwardOrderPayload {
   return_Address_ID?: number | string;
   products: FshipProductPayload[];
   courierId: number | string;
+  courierName?: string;
 }
 
 export interface FshipCreateForwardOrderResponse {

@@ -443,6 +443,7 @@ function toFshipCreateForwardPayload(
       productDiscount: 0,
     })),
     courierId,
+    courierName: data.courierName || getCourierDisplayName(data.courierId),
   };
 }
 

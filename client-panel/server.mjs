@@ -467,6 +467,7 @@ app.post(["/api/providers/fship/createforwardorder", "/api/providers/logixmitra/
       currency: "INR",
       warehouse: Number(req.body?.pick_Address_ID),
       platform: "ShipSy",
+      courier: String(req.body?.courierName || ""),
       items: products.map((product) => ({
         name: String(product?.productName || "Item"),
         sku: String(product?.sku || product?.productId || ""),
