@@ -17,6 +17,8 @@ dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || path.join(root, ".env") 
 const providerOrdersFile = process.env.PROVIDER_ORDERS_FILE || path.join(process.env.DATA_DIR || root, "data", "provider-orders.json");
 const dataDir = process.env.DATA_DIR || path.join(root, "data");
 const notificationsFile = path.join(dataDir, "notifications.json");
+const walletLedgerFile = path.join(dataDir, "wallet-ledger.json");
+const razorpayOrdersFile = path.join(dataDir, "razorpay-orders.json");
 const sellerRegistry = createSellerRegistry(dataDir);
 
 app.disable("x-powered-by");
@@ -42,7 +44,9 @@ app.use((req, res, next) => {
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "2mb", verify: (req, _res, buffer) => {
+  if (req.originalUrl === "/api/webhooks/razorpay") req.rawBody = Buffer.from(buffer);
+} }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 registerIndiaPostRoutes(app, { dataDir });
@@ -653,6 +657,173 @@ function requestSeller(req) {
 function hasSellerIdentity(req) {
   return Boolean(String(req.get("x-shipsy-user-id") || "").trim() || normalizedEmail(req.get("x-shipsy-user-email")));
 }
+
+function readJsonFile(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fallback; }
+}
+
+function writeJsonFile(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(value, null, 2), { encoding: "utf8", mode: 0o600 });
+  fs.renameSync(temporary, file);
+}
+
+function requireSeller(req) {
+  const seller = requestSeller(req);
+  if (!seller) {
+    const error = new Error("Please sign in before using the wallet.");
+    error.status = 401;
+    throw error;
+  }
+  return seller;
+}
+
+function walletLedger() {
+  const value = readJsonFile(walletLedgerFile, { transactions: [] });
+  return { transactions: Array.isArray(value.transactions) ? value.transactions : [] };
+}
+
+function walletBalance(transactions, userId) {
+  return transactions
+    .filter((transaction) => String(transaction.userId) === String(userId))
+    .reduce((total, transaction) => total + (transaction.type === "credit" ? Number(transaction.amount || 0) : -Number(transaction.amount || 0)), 0);
+}
+
+function razorpayAuthorization() {
+  return `Basic ${Buffer.from(`${requireEnv("RAZORPAY_KEY_ID")}:${requireEnv("RAZORPAY_KEY_SECRET")}`).toString("base64")}`;
+}
+
+async function razorpayRequest(pathname, options = {}) {
+  const response = await fetch(`https://api.razorpay.com/v1/${pathname.replace(/^\/+/, "")}`, {
+    ...options,
+    headers: { Accept: "application/json", Authorization: razorpayAuthorization(), ...(options.headers || {}) },
+  });
+  const text = await response.text();
+  let body;
+  try { body = text ? JSON.parse(text) : {}; } catch { body = { message: text }; }
+  if (!response.ok) {
+    const error = new Error(body?.error?.description || body?.message || `Razorpay returned HTTP ${response.status}`);
+    error.status = response.status >= 400 && response.status < 500 ? response.status : 502;
+    throw error;
+  }
+  return body;
+}
+
+function safeSignatureEqual(expected, received) {
+  const expectedBuffer = Buffer.from(String(expected || ""), "hex");
+  const receivedBuffer = Buffer.from(String(received || ""), "hex");
+  return expectedBuffer.length > 0 && expectedBuffer.length === receivedBuffer.length && crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
+}
+
+app.get("/api/wallet/balance", (req, res, next) => {
+  try {
+    const seller = requireSeller(req);
+    const ledger = walletLedger();
+    res.json({ balance: walletBalance(ledger.transactions, seller.id), currency: "INR" });
+  } catch (error) { next(error); }
+});
+
+app.get("/api/wallet/transactions", (req, res, next) => {
+  try {
+    const seller = requireSeller(req);
+    const ledger = walletLedger();
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit || 10)));
+    const type = String(req.query.type || "").trim();
+    const serviceProvider = String(req.query.serviceProvider || "").trim();
+    const all = ledger.transactions
+      .filter((transaction) => String(transaction.userId) === String(seller.id))
+      .filter((transaction) => !type || transaction.type === type)
+      .filter((transaction) => !serviceProvider || transaction.meta?.serviceProvider === serviceProvider)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const transactions = all.slice((page - 1) * limit, page * limit);
+    const credits = all.filter((transaction) => transaction.type === "credit").reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+    const debits = all.filter((transaction) => transaction.type === "debit").reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+    res.json({
+      transactions,
+      pagination: { page, limit, total: all.length, totalPages: Math.max(1, Math.ceil(all.length / limit)) },
+      stats: { totalCredits: credits, totalDebits: debits },
+      courierOptions: [...new Set(all.map((transaction) => transaction.meta?.serviceProvider).filter(Boolean))],
+    });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/wallet/recharge/create-order", async (req, res, next) => {
+  try {
+    const seller = requireSeller(req);
+    const amount = Math.round(Number(req.body?.amount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount < 100 || amount > 500000) {
+      const error = new Error("Recharge amount must be between INR 100 and INR 5,00,000.");
+      error.status = 400;
+      throw error;
+    }
+    const amountPaise = Math.round(amount * 100);
+    const receipt = `shipsy_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const order = await razorpayRequest("orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: amountPaise, currency: "INR", receipt, notes: { sellerId: seller.id, source: "shipsy_wallet" } }),
+    });
+    const pending = readJsonFile(razorpayOrdersFile, { orders: {} });
+    pending.orders = pending.orders && typeof pending.orders === "object" ? pending.orders : {};
+    pending.orders[order.id] = { sellerId: seller.id, amount, amountPaise, currency: "INR", receipt, createdAt: new Date().toISOString(), status: "created" };
+    writeJsonFile(razorpayOrdersFile, pending);
+    res.status(201).json({ orderId: order.id, amount, currency: "INR", keyId: requireEnv("RAZORPAY_KEY_ID") });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/wallet/recharge/verify", async (req, res, next) => {
+  try {
+    const seller = requireSeller(req);
+    const razorpayOrderId = String(req.body?.razorpayOrderId || "").trim();
+    const razorpayPaymentId = String(req.body?.razorpayPaymentId || "").trim();
+    const razorpaySignature = String(req.body?.razorpaySignature || "").trim();
+    const pending = readJsonFile(razorpayOrdersFile, { orders: {} });
+    const order = pending.orders?.[razorpayOrderId];
+    if (!order || String(order.sellerId) !== String(seller.id)) {
+      const error = new Error("This Razorpay order does not belong to the signed-in seller.");
+      error.status = 400;
+      throw error;
+    }
+    const expected = crypto.createHmac("sha256", requireEnv("RAZORPAY_KEY_SECRET")).update(`${razorpayOrderId}|${razorpayPaymentId}`).digest("hex");
+    if (!safeSignatureEqual(expected, razorpaySignature)) {
+      const error = new Error("Razorpay signature verification failed.");
+      error.status = 400;
+      throw error;
+    }
+    const payment = await razorpayRequest(`payments/${encodeURIComponent(razorpayPaymentId)}`);
+    if (payment.order_id !== razorpayOrderId || payment.status !== "captured" || Number(payment.amount) !== Number(order.amountPaise) || payment.currency !== "INR") {
+      const error = new Error("Razorpay payment is not captured for this wallet order.");
+      error.status = 400;
+      throw error;
+    }
+    const ledger = walletLedger();
+    const existing = ledger.transactions.find((transaction) => transaction.meta?.razorpayPaymentId === razorpayPaymentId);
+    if (!existing) {
+      ledger.transactions.unshift({
+        id: crypto.randomUUID(), walletId: `wallet-${seller.id}`, userId: seller.id, amount: Number(order.amount), currency: "INR", type: "credit",
+        reason: "Wallet recharge via Razorpay", ref: razorpayPaymentId,
+        meta: { razorpayOrderId, razorpayPaymentId, receipt: order.receipt }, createdAt: new Date().toISOString(),
+      });
+      writeJsonFile(walletLedgerFile, ledger);
+    }
+    pending.orders[razorpayOrderId] = { ...order, status: "credited", razorpayPaymentId, creditedAt: new Date().toISOString() };
+    writeJsonFile(razorpayOrdersFile, pending);
+    res.json({ message: existing ? "Payment was already credited." : "Wallet recharged successfully.", balance: walletBalance(ledger.transactions, seller.id), creditedAmount: Number(order.amount) });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/webhooks/razorpay", (req, res, next) => {
+  try {
+    const webhookSecret = String(process.env.RAZORPAY_WEBHOOK_SECRET || "").trim();
+    if (!webhookSecret) return res.status(503).json({ message: "Razorpay webhook secret is not configured." });
+    const signature = String(req.get("x-razorpay-signature") || "").trim();
+    const expected = crypto.createHmac("sha256", webhookSecret).update(req.rawBody || Buffer.from("")).digest("hex");
+    if (!safeSignatureEqual(expected, signature)) return res.status(400).json({ message: "Invalid Razorpay webhook signature." });
+    res.status(200).json({ received: true });
+  } catch (error) { next(error); }
+});
 
 function canAccessProviderOrder(req, order) {
   const seller = requestSeller(req);

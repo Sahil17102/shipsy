@@ -1,8 +1,8 @@
 export function shouldUseStaticClientData(): boolean {
   const flag = import.meta.env.VITE_STATIC_DATA_ENABLED;
-  if (flag === "true") return true;
-  if (flag === "false") return false;
-  return true;
+  // Static data is only for an intentionally configured demo build. Real
+  // deployments must use the API for wallet balances and payment verification.
+  return flag === "true";
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
