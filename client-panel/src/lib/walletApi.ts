@@ -262,6 +262,14 @@ export const walletApi = {
     if (!Number.isFinite(roundedAmount) || roundedAmount <= 0) {
       throw new Error("A valid shipping charge is required before creating the order");
     }
+    // Stop before any courier API call when the seller cannot cover the live
+    // shipment charge. This gives the booking screen an actionable message
+    // instead of an ambiguous wallet/debit failure.
+    const currentWallet = await walletApi.getBalance();
+    if (Number(currentWallet.balance) < roundedAmount) {
+      const shortfall = Math.max(0, roundedAmount - Number(currentWallet.balance));
+      throw new Error(`Insufficient wallet balance. Add at least ₹${shortfall.toFixed(2)} to book this shipment.`);
+    }
     const response = await fetch(SHARED_WALLET_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
