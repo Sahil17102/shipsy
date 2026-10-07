@@ -84,7 +84,7 @@ function defaultCredentials(): ProviderCredentialsResponse {
   };
 }
 
-function logixMitraCredentials(): ProviderCredentialsResponse {
+function fshipCredentials(): ProviderCredentialsResponse {
   const fields: CredentialFieldDef[] = [
     { key: "baseUrl", label: "Base URL", type: "text", required: true },
     { key: "email", label: "API Account Email", type: "text", required: true },
@@ -110,6 +110,19 @@ function logixMitraCredentials(): ProviderCredentialsResponse {
       },
       sameAsB2c: true,
     },
+  };
+}
+
+function logixMitraCredentials(): ProviderCredentialsResponse {
+  const fields: CredentialFieldDef[] = [
+    { key: "baseUrl", label: "LogixMitra API Base URL", type: "text", required: true },
+    { key: "email", label: "LogixMitra API Account Email", type: "text", required: true },
+    { key: "password", label: "LogixMitra API Account Password", type: "password", required: true },
+  ];
+  const values = { baseUrl: "", email: "", password: "" };
+  return {
+    b2c: { fields, description: "Separate Delivery (LogixMitra) integration. Configure only with LogixMitra-issued API credentials.", values },
+    b2b: { fields, description: "Separate Delivery (LogixMitra) B2B integration. It is not linked to FShip credentials.", values, sameAsB2c: false },
   };
 }
 
@@ -216,8 +229,8 @@ function defaultSeedProviders(): ProviderListItem[] {
       updatedAt,
     },
     {
-      id: "sp-logixmitra",
-      serviceProvider: "logixmitra",
+      id: "sp-fship",
+      serviceProvider: "fship",
       displayName: "FShip",
       logoUrl: "",
       totalCouriers: 2,
@@ -229,6 +242,20 @@ function defaultSeedProviders(): ProviderListItem[] {
       status: "active",
       updatedAt,
     },
+    {
+      id: "sp-logixmitra",
+      serviceProvider: "logixmitra",
+      displayName: "Delivery",
+      logoUrl: "",
+      totalCouriers: 2,
+      enabledCouriers: 0,
+      serviceProviderDisplayName: "Delivery",
+      isEnabled: true,
+      b2c: { configured: false },
+      b2b: { configured: false, sameAsB2c: false },
+      status: "inactive",
+      updatedAt,
+    },
   ];
 }
 
@@ -236,8 +263,8 @@ function mergeSeedProviders(providers: ProviderListItem[]): ProviderListItem[] {
   const blocked = new Set(["teampafex", "shadowfax"]);
   const filtered = providers
     .filter((provider) => !blocked.has(provider.serviceProvider.toLowerCase()))
-    .map((provider) => provider.serviceProvider.toLowerCase() === "logixmitra"
-      ? { ...provider, displayName: "FShip", serviceProviderDisplayName: "FShip" }
+    .map((provider) => provider.serviceProvider.toLowerCase() === "logixmitra" && provider.displayName === "FShip"
+      ? { ...provider, id: "sp-fship", serviceProvider: "fship", displayName: "FShip", serviceProviderDisplayName: "FShip" }
       : provider);
   const seen = new Set(filtered.map((provider) => provider.serviceProvider.toLowerCase()));
   const missingSeeds = defaultSeedProviders().filter((provider) => !seen.has(provider.serviceProvider));
@@ -272,8 +299,10 @@ function readStaticCredentials(providerId: string): ProviderCredentialsResponse 
       ? indiaPostCredentials()
       : providerId === "sp-delhivery"
       ? delhiveryCredentials()
-      : providerId === "sp-logixmitra"
-        ? logixMitraCredentials()
+      : providerId === "sp-fship"
+        ? fshipCredentials()
+        : providerId === "sp-logixmitra"
+          ? logixMitraCredentials()
         : defaultCredentials();
   const creds = all[providerId] ?? fallback;
   const merged: ProviderCredentialsResponse = {

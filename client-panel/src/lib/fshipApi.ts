@@ -48,7 +48,7 @@ export function shouldUseFshipApi(): boolean {
 
 export function isFshipServiceProvider(value?: string | null): boolean {
   const key = String(value || "").toLowerCase();
-  return ["fship", "logixmitra", "logix_mitra"].includes(key);
+  return key === "fship";
 }
 
 export function isFshipApiConfigured(): boolean {

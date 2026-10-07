@@ -51,10 +51,15 @@ export const SERVICE_PROVIDER_VARIANTS: Record<string, ServiceProviderVariant> =
     color: "green",
     badgeClass: "bg-emerald-500/[0.08] text-emerald-600 border border-emerald-500/15",
   },
-  logixmitra: {
+  fship: {
     label: "FShip",
     color: "geekblue",
     badgeClass: "bg-blue-500/[0.08] text-blue-600 border border-blue-500/15",
+  },
+  logixmitra: {
+    label: "Delivery",
+    color: "cyan",
+    badgeClass: "bg-cyan-500/[0.08] text-cyan-600 border border-cyan-500/15",
   },
   manual: {
     label: "Manual",

@@ -212,7 +212,8 @@ function getCourierDisplayName(courierId: string): string {
   if (id === "80") return "DLVY Standard";
   if (id === "152") return "Delhivery B2B";
   if (id === "161") return "Shadowfax";
-  if (courierId.toLowerCase().includes("logixmitra")) return "FShip";
+  if (courierId.toLowerCase().includes("logixmitra")) return "Delivery";
+  if (courierId.toLowerCase().includes("fship")) return "FShip";
   return courierId || "Teampafex";
 }
 
@@ -463,7 +464,7 @@ async function createFshipOrder(data: CreateOrderPayload): Promise<Order> {
     ...order,
     id: providerOrderId,
     status: awb ? "booked" : "processing",
-    serviceProvider: "logixmitra",
+    serviceProvider: "fship",
     courierName: data.courierName || getCourierDisplayName(data.courierId),
     providerOrderId,
     awb,

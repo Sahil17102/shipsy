@@ -266,13 +266,13 @@ function makeFallbackB2cRates(params: AvailableCouriersParams, shared: SharedCou
   const cod = codCharge(params.paymentType, params.orderAmount);
   const defaults: SharedCourier[] = [
     { id: "delhivery:b2c-surface", name: "Delhivery B2C Surface", serviceProvider: "delhivery", serviceProviderDisplayName: "Delhivery" },
-    { id: "logixmitra:surface", name: "FShip Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "FShip" },
+    { id: "fship:surface", name: "FShip Surface", serviceProvider: "fship", serviceProviderDisplayName: "FShip" },
   ];
   const options = (shared.length > 0 ? shared : defaults).map((item, index) => ({
     courierId: item.id,
-    name: item.name,
+    name: isFshipServiceProvider(item.serviceProvider) ? "FShip" : item.name,
     serviceProvider: item.serviceProvider,
-    displayName: item.serviceProviderDisplayName,
+    displayName: isFshipServiceProvider(item.serviceProvider) ? "FShip" : item.serviceProviderDisplayName,
     freightPerSlab: Math.max(42, 54 - index * 2),
     rtoPerSlab: Math.max(36, 48 - index * 2),
   }));
@@ -319,15 +319,15 @@ function makeFallbackB2bRates(params: B2bAvailableCouriersParams, shared: Shared
 
   const defaults: SharedCourier[] = [
     { id: "delhivery:b2b-ltl", name: "Delhivery B2B LTL", serviceProvider: "delhivery", serviceProviderDisplayName: "Delhivery" },
-    { id: "logixmitra:b2b-surface", name: "FShip B2B Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "FShip" },
+    { id: "fship:b2b-surface", name: "FShip B2B Surface", serviceProvider: "fship", serviceProviderDisplayName: "FShip" },
   ];
   return (shared.length > 0 ? shared : defaults).map((option, index) => {
     const adjustedFreight = round(baseFreight * (1 + index * 0.04));
     return {
       courierId: option.id,
-      name: option.name,
+      name: isFshipServiceProvider(option.serviceProvider) ? "FShip" : option.name,
       serviceProvider: option.serviceProvider,
-      serviceProviderDisplayName: option.serviceProviderDisplayName,
+      serviceProviderDisplayName: isFshipServiceProvider(option.serviceProvider) ? "FShip" : option.serviceProviderDisplayName,
       logo: null,
       zone: {
         originCode: params.origin,
@@ -568,8 +568,8 @@ async function getFshipRates(params: AvailableCouriersParams): Promise<Available
     const mode = String(rate.service_mode || "surface").toLowerCase().includes("air") ? "air" : "surface";
     return {
       courierId: rate._courierId,
-      name: rate.courier_name || "FShip",
-      serviceProvider: "logixmitra",
+      name: "Delivery",
+      serviceProvider: "fship",
       serviceProviderDisplayName: "FShip",
       logo: null,
       mode,
@@ -662,8 +662,8 @@ async function getFshipB2bRates(params: B2bAvailableCouriersParams): Promise<B2b
     const total = round(freight + cod);
     return {
       courierId: rate._courierId,
-      name: rate.courier_name || "FShip",
-      serviceProvider: "logixmitra",
+      name: "Delivery",
+      serviceProvider: "fship",
       serviceProviderDisplayName: "FShip",
       logo: null,
       zone: {
