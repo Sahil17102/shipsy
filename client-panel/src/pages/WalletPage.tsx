@@ -98,8 +98,8 @@ export function WalletPage() {
 
   const handleRecharge = useCallback(async () => {
     const numAmount = Number(amount);
-    if (!numAmount || numAmount < 100) {
-      toast.error("Minimum recharge amount is ₹100");
+    if (!numAmount || numAmount < 1) {
+      toast.error("Minimum recharge amount is ₹1");
       return;
     }
     if (numAmount > 500000) {

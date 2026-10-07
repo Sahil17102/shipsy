@@ -52,14 +52,14 @@ export function RechargeCard({ amount, onAmountChange, onRecharge, isProcessing 
             value={amount}
             onChange={(e) => onAmountChange(e.target.value)}
             placeholder="Enter amount"
-            min={100}
+            min={1}
             max={500000}
             className="w-full pl-7 pr-4 py-2.5 rounded-lg border border-border-light bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all"
           />
         </div>
         <button
           onClick={onRecharge}
-          disabled={isProcessing || !amount || Number(amount) < 100}
+          disabled={isProcessing || !amount || Number(amount) < 1}
           className="px-6 py-2.5 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 shrink-0"
         >
           {isProcessing ? (
@@ -77,7 +77,7 @@ export function RechargeCard({ amount, onAmountChange, onRecharge, isProcessing 
       </div>
 
       <p className="text-xs text-muted mt-3">
-        Min ₹100 &bull; Max ₹5,00,000 &bull; Powered by Razorpay
+        Min ₹1 &bull; Max ₹5,00,000 &bull; Powered by Razorpay
       </p>
     </motion.div>
   );
