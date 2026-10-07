@@ -753,8 +753,8 @@ app.post("/api/wallet/recharge/create-order", async (req, res, next) => {
   try {
     const seller = requireSeller(req);
     const amount = Math.round(Number(req.body?.amount) * 100) / 100;
-    if (!Number.isFinite(amount) || amount < 100 || amount > 500000) {
-      const error = new Error("Recharge amount must be between INR 100 and INR 5,00,000.");
+    if (!Number.isFinite(amount) || amount < 1 || amount > 500000) {
+      const error = new Error("Recharge amount must be between INR 1 and INR 5,00,000.");
       error.status = 400;
       throw error;
     }
