@@ -43,7 +43,10 @@ function writeJsonArray<T>(key: string, value: T[]): void {
 }
 
 export function shouldUseFshipApi(): boolean {
-  return fshipEnabled === "true";
+  // Production ShipSy uses its own API proxy for the provider credentials.
+  // Do not fall back to fabricated FShip rates merely because the optional
+  // client-side feature flag is absent from the production Vite bundle.
+  return serverManagedFship || fshipEnabled === "true";
 }
 
 export function isFshipServiceProvider(value?: string | null): boolean {
