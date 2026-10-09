@@ -374,6 +374,10 @@ async function readUpstream(response) {
 function upstreamErrorMessage(body, fallback) {
   if (typeof body === "string" && body.trim()) return body.trim();
   if (body && typeof body === "object") {
+    const failedOrderError = Array.isArray(body.failedOrders)
+      ? body.failedOrders.find((item) => typeof item?.error === "string" && item.error.trim())?.error
+      : "";
+    if (failedOrderError) return failedOrderError.trim();
     for (const key of ["message", "error", "detail", "prepaid", "cod", "response", "remark", "remarks"]) {
       const value = body[key];
       if (typeof value === "string" && value.trim()) return value.trim();
@@ -641,7 +645,7 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
       totalDiscounts: products.reduce((sum, product) => sum + Number(product?.productDiscount || 0), 0),
       currency: "INR",
       warehouse: Number(req.body?.pick_Address_ID),
-      platform: "ShipSy",
+      platform: "Custom",
       courier: genericCourierNames.has(requestedCourier.toLowerCase()) ? "" : requestedCourier,
       items: products.map((product) => ({
         name: String(product?.productName || "Item"),
