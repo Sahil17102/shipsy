@@ -19,7 +19,83 @@ const dataDir = process.env.DATA_DIR || path.join(root, "data");
 const notificationsFile = path.join(dataDir, "notifications.json");
 const walletLedgerFile = path.join(dataDir, "wallet-ledger.json");
 const razorpayOrdersFile = path.join(dataDir, "razorpay-orders.json");
+const pricingStoreFile = path.join(dataDir, "pricing-store.json");
 const sellerRegistry = createSellerRegistry(dataDir);
+
+const B2C_ZONE_META = {
+  "seed-b2c-zone-a": { id: "seed-b2c-zone-a", code: "A", name: "Local" },
+  "seed-b2c-zone-b": { id: "seed-b2c-zone-b", code: "B", name: "Regional" },
+  "seed-b2c-zone-c": { id: "seed-b2c-zone-c", code: "C", name: "Metro" },
+  "seed-b2c-zone-d": { id: "seed-b2c-zone-d", code: "D", name: "National" },
+  "seed-b2c-zone-e": { id: "seed-b2c-zone-e", code: "E", name: "Special" },
+};
+const B2B_ZONE_META = {
+  "seed-b2b-zone-north": { id: "seed-b2b-zone-north", code: "N", name: "North" },
+  "seed-b2b-zone-west": { id: "seed-b2b-zone-west", code: "W", name: "West" },
+  "seed-b2b-zone-south": { id: "seed-b2b-zone-south", code: "S", name: "South" },
+  "seed-b2b-zone-east": { id: "seed-b2b-zone-east", code: "E", name: "East" },
+  "seed-b2b-zone-ne": { id: "seed-b2b-zone-ne", code: "NE", name: "North East" },
+};
+const PRICING_COURIERS = {
+  "delhivery:b2c-surface": { id: "delhivery:b2c-surface", name: "Delhivery B2C Surface", serviceProvider: "delhivery", displayName: "Delhivery" },
+  "delhivery:b2b-ltl": { id: "delhivery:b2b-ltl", name: "Delhivery B2B LTL", serviceProvider: "delhivery", displayName: "Delhivery" },
+  "fship:surface": { id: "fship:surface", name: "FShip Surface", serviceProvider: "fship", displayName: "FShip" },
+  "fship:b2b-surface": { id: "fship:b2b-surface", name: "FShip B2B Surface", serviceProvider: "fship", displayName: "FShip" },
+  "logixmitra:surface": { id: "logixmitra:surface", name: "Delivery Surface", serviceProvider: "logixmitra", displayName: "Delivery" },
+  "logixmitra:b2b-surface": { id: "logixmitra:b2b-surface", name: "Delivery B2B Surface", serviceProvider: "logixmitra", displayName: "Delivery" },
+  "manual:80": { id: "manual:80", name: "Standard Courier", serviceProvider: "manual", displayName: "Manual" },
+  "manual:152": { id: "manual:152", name: "B2B Freight", serviceProvider: "manual", displayName: "Manual" },
+  "manual:161": { id: "manual:161", name: "Local Express", serviceProvider: "manual", displayName: "Manual" },
+};
+
+function emptyPricingStore() {
+  return { b2cPricing: [], b2cZones: [], b2bZones: [], b2bPincodes: [], b2bZoneRates: [], b2bAdditionalCharges: [] };
+}
+
+function loadPricingStore() {
+  try {
+    return { ...emptyPricingStore(), ...JSON.parse(fs.readFileSync(pricingStoreFile, "utf8")) };
+  } catch {
+    return emptyPricingStore();
+  }
+}
+
+function savePricingStore(store) {
+  fs.mkdirSync(path.dirname(pricingStoreFile), { recursive: true });
+  const temporary = `${pricingStoreFile}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(store, null, 2), "utf8");
+  fs.renameSync(temporary, pricingStoreFile);
+}
+
+function pricingId(prefix, parts) {
+  return `${prefix}-${crypto.createHash("sha256").update(parts.map(String).join(":" )).digest("hex").slice(0, 18)}`;
+}
+
+function courierMeta(id) {
+  return PRICING_COURIERS[id] || { id, name: String(id || "Courier"), serviceProvider: String(id || "manual").split(":")[0], displayName: String(id || "Courier") };
+}
+
+function b2cZoneMeta(zone) {
+  if (zone && typeof zone === "object") return zone;
+  return B2C_ZONE_META[zone] || { id: String(zone), code: String(zone).replace(/^.*-/, "").toUpperCase(), name: String(zone) };
+}
+
+function b2bZoneMeta(zone) {
+  if (zone && typeof zone === "object") return zone;
+  return B2B_ZONE_META[zone] || { id: String(zone), code: String(zone).replace(/^.*-/, "").toUpperCase(), name: String(zone) };
+}
+
+function hydrateB2cPricing(item) {
+  return { ...item, courier: courierMeta(item.courierId || item.courier?.id), zoneRates: (item.zoneRates || []).map((row) => ({ ...row, zone: b2cZoneMeta(row.zone) })) };
+}
+
+function hydrateB2bRate(item) {
+  return { ...item, courier: courierMeta(item.courier || item.courierId || item.courier?.id), originZone: b2bZoneMeta(item.originZone), destinationZone: b2bZoneMeta(item.destinationZone) };
+}
+
+function hydrateB2bCharge(item) {
+  return { ...item, courier: courierMeta(item.courier || item.courierId || item.courier?.id) };
+}
 
 app.disable("x-powered-by");
 app.use((req, res, next) => {
@@ -1626,6 +1702,199 @@ app.post("/api/provider-orders/manifest", async (req, res, next) => {
     res.type("application/pdf").set("X-Shipsy-Storage-Key", storageKey).set("Content-Disposition", `attachment; filename=manifest-${Date.now()}.pdf`).send(pdf);
   } catch (error) { next(error); }
 });
+
+// Pricing is shared by the admin and client panels. It lives in DATA_DIR so
+// release switches do not discard changes made from the admin UI.
+app.get("/api/admin/b2c-pricing", (req, res) => {
+  const store = loadPricingStore();
+  let pricing = store.b2cPricing.map(hydrateB2cPricing);
+  for (const key of ["plan", "mode"]) if (req.query[key]) pricing = pricing.filter((item) => String(item[key]) === String(req.query[key]));
+  if (req.query.courier) pricing = pricing.filter((item) => item.courier.id === String(req.query.courier));
+  if (req.query.serviceProvider) pricing = pricing.filter((item) => item.courier.serviceProvider === String(req.query.serviceProvider));
+  const page = Math.max(1, Number(req.query.page || 1));
+  const limit = Math.max(1, Number(req.query.limit || 50));
+  res.json({ pricing: pricing.slice((page - 1) * limit, page * limit), pagination: { page, limit, total: pricing.length, totalPages: Math.max(1, Math.ceil(pricing.length / limit)) } });
+});
+
+app.get("/api/admin/b2c-pricing/courier/:courierId", (req, res) => {
+  const pricing = loadPricingStore().b2cPricing
+    .filter((item) => item.courierId === req.params.courierId && (!req.query.plan || item.plan === req.query.plan))
+    .map(hydrateB2cPricing);
+  if (req.query.plan) return res.json({ pricing: pricing[0] || null });
+  return res.json({ pricing });
+});
+
+function upsertB2cPricing(store, payload) {
+  const now = new Date().toISOString();
+  const key = `${payload.courierId}:${payload.plan}`;
+  const previous = store.b2cPricing.find((item) => `${item.courierId}:${item.plan}` === key);
+  const item = {
+    ...payload,
+    id: previous?.id || pricingId("b2c", [payload.courierId, payload.plan]),
+    createdAt: previous?.createdAt || now,
+    updatedAt: now,
+  };
+  store.b2cPricing = store.b2cPricing.filter((entry) => `${entry.courierId}:${entry.plan}` !== key);
+  store.b2cPricing.push(item);
+  return item;
+}
+
+app.post("/api/admin/b2c-pricing", (req, res) => {
+  const store = loadPricingStore();
+  const item = upsertB2cPricing(store, req.body || {});
+  savePricingStore(store);
+  res.json({ message: "Pricing saved", pricing: hydrateB2cPricing(item) });
+});
+
+app.post("/api/admin/b2c-pricing/batch", (req, res) => {
+  const store = loadPricingStore();
+  const payload = req.body || {};
+  const entries = Object.entries(payload.planRates || {});
+  for (const [plan, zoneRates] of entries) upsertB2cPricing(store, { courierId: payload.courierId, plan, mode: payload.mode, otherCharges: Number(payload.otherCharges || 0), weightSlabs: payload.weightSlabs || [], zoneRates });
+  savePricingStore(store);
+  res.json({ message: "Pricing saved for all plans", saved: entries.length });
+});
+
+app.delete("/api/admin/b2c-pricing/:id", (req, res) => {
+  const store = loadPricingStore();
+  store.b2cPricing = store.b2cPricing.filter((item) => item.id !== req.params.id);
+  savePricingStore(store);
+  res.sendStatus(204);
+});
+
+app.get("/api/admin/b2c-zones", (req, res) => {
+  const now = new Date().toISOString();
+  const defaults = Object.values(B2C_ZONE_META).map((zone) => ({ ...zone, description: "", isActive: true, createdAt: now, updatedAt: now }));
+  const custom = loadPricingStore().b2cZones;
+  const zones = [...defaults.filter((item) => !custom.some((saved) => saved.id === item.id)), ...custom];
+  res.json({ zones, pagination: { page: 1, limit: zones.length || 50, total: zones.length, totalPages: 1 }, stats: { total: zones.length, active: zones.filter((item) => item.isActive).length, inactive: zones.filter((item) => !item.isActive).length } });
+});
+
+app.post("/api/admin/b2c-zones", (req, res) => {
+  const store = loadPricingStore();
+  const now = new Date().toISOString();
+  const zone = { ...req.body, id: pricingId("b2c-zone", [req.body?.code, Date.now()]), isActive: true, createdAt: now, updatedAt: now };
+  store.b2cZones.push(zone); savePricingStore(store); res.json({ zone });
+});
+
+app.put("/api/admin/b2c-zones/:id", (req, res) => {
+  const store = loadPricingStore();
+  const base = store.b2cZones.find((item) => item.id === req.params.id) || { ...B2C_ZONE_META[req.params.id], id: req.params.id, isActive: true, createdAt: new Date().toISOString() };
+  const zone = { ...base, ...req.body, updatedAt: new Date().toISOString() };
+  store.b2cZones = [...store.b2cZones.filter((item) => item.id !== req.params.id), zone]; savePricingStore(store); res.json({ zone });
+});
+
+app.patch("/api/admin/b2c-zones/:id/toggle", (req, res) => {
+  const store = loadPricingStore();
+  const base = store.b2cZones.find((item) => item.id === req.params.id) || { ...B2C_ZONE_META[req.params.id], id: req.params.id, isActive: true, createdAt: new Date().toISOString() };
+  const zone = { ...base, isActive: !base.isActive, updatedAt: new Date().toISOString() };
+  store.b2cZones = [...store.b2cZones.filter((item) => item.id !== req.params.id), zone]; savePricingStore(store); res.json(zone);
+});
+
+app.delete("/api/admin/b2c-zones/:id", (req, res) => {
+  const store = loadPricingStore(); store.b2cZones = store.b2cZones.filter((item) => item.id !== req.params.id); savePricingStore(store); res.sendStatus(204);
+});
+
+app.get("/api/admin/b2b/zones", (_req, res) => {
+  const now = new Date().toISOString();
+  const defaults = Object.values(B2B_ZONE_META).map((zone) => ({ ...zone, description: "", isActive: true, createdAt: now, updatedAt: now }));
+  const custom = loadPricingStore().b2bZones;
+  res.json({ data: [...defaults.filter((item) => !custom.some((saved) => saved.id === item.id)), ...custom] });
+});
+
+app.post("/api/admin/b2b/zones", (req, res) => {
+  const store = loadPricingStore(); const now = new Date().toISOString();
+  const data = { ...req.body, id: pricingId("b2b-zone", [req.body?.code, Date.now()]), isActive: true, createdAt: now, updatedAt: now };
+  store.b2bZones.push(data); savePricingStore(store); res.json({ data });
+});
+
+app.put("/api/admin/b2b/zones/:id", (req, res) => {
+  const store = loadPricingStore(); const base = store.b2bZones.find((item) => item.id === req.params.id) || { ...B2B_ZONE_META[req.params.id], id: req.params.id, isActive: true, createdAt: new Date().toISOString() };
+  const data = { ...base, ...req.body, updatedAt: new Date().toISOString() }; store.b2bZones = [...store.b2bZones.filter((item) => item.id !== req.params.id), data]; savePricingStore(store); res.json({ data });
+});
+
+app.patch("/api/admin/b2b/zones/:id/toggle", (req, res) => {
+  const store = loadPricingStore(); const base = store.b2bZones.find((item) => item.id === req.params.id) || { ...B2B_ZONE_META[req.params.id], id: req.params.id, isActive: true, createdAt: new Date().toISOString() };
+  const data = { ...base, isActive: !base.isActive, updatedAt: new Date().toISOString() }; store.b2bZones = [...store.b2bZones.filter((item) => item.id !== req.params.id), data]; savePricingStore(store); res.json({ data });
+});
+
+app.delete("/api/admin/b2b/zones/:id", (req, res) => { const store = loadPricingStore(); store.b2bZones = store.b2bZones.filter((item) => item.id !== req.params.id); savePricingStore(store); res.sendStatus(204); });
+
+app.get("/api/admin/b2b/zone-rates", (req, res) => {
+  let data = loadPricingStore().b2bZoneRates.map(hydrateB2bRate);
+  for (const key of ["plan", "serviceProvider"]) if (req.query[key]) data = data.filter((item) => String(item[key]) === String(req.query[key]));
+  if (req.query.courier) data = data.filter((item) => item.courier.id === String(req.query.courier));
+  if (req.query.originZone) data = data.filter((item) => item.originZone.id === String(req.query.originZone));
+  if (req.query.destinationZone) data = data.filter((item) => item.destinationZone.id === String(req.query.destinationZone));
+  res.json({ data });
+});
+
+function upsertB2bZoneRate(store, payload) {
+  const now = new Date().toISOString(); const key = [payload.plan, payload.courier, payload.originZone, payload.destinationZone].join(":");
+  const previous = store.b2bZoneRates.find((item) => [item.plan, item.courier, item.originZone, item.destinationZone].join(":") === key);
+  const item = { ...payload, rtoRatePerKg: Number(payload.rtoRatePerKg || 0), volumetricDivisor: Number(payload.volumetricDivisor || 5000), isActive: payload.isActive !== false, id: previous?.id || pricingId("b2b-rate", [key]), createdAt: previous?.createdAt || now, updatedAt: now };
+  store.b2bZoneRates = store.b2bZoneRates.filter((entry) => [entry.plan, entry.courier, entry.originZone, entry.destinationZone].join(":") !== key); store.b2bZoneRates.push(item); return item;
+}
+
+app.post("/api/admin/b2b/zone-rates", (req, res) => { const store = loadPricingStore(); const data = upsertB2bZoneRate(store, req.body || {}); savePricingStore(store); res.json({ data: hydrateB2bRate(data) }); });
+app.post("/api/admin/b2b/zone-rates/batch", (req, res) => { const store = loadPricingStore(); const rates = Array.isArray(req.body?.rates) ? req.body.rates : []; rates.forEach((item) => upsertB2bZoneRate(store, item)); savePricingStore(store); res.json({ upserted: rates.length, modified: 0 }); });
+app.delete("/api/admin/b2b/zone-rates/:id", (req, res) => { const store = loadPricingStore(); store.b2bZoneRates = store.b2bZoneRates.filter((item) => item.id !== req.params.id); savePricingStore(store); res.sendStatus(204); });
+
+app.get("/api/admin/b2b/additional-charges", (req, res) => {
+  let data = loadPricingStore().b2bAdditionalCharges.map(hydrateB2bCharge); if (req.query.plan) data = data.filter((item) => item.plan === req.query.plan); if (req.query.courier) data = data.filter((item) => item.courier.id === req.query.courier); res.json({ data });
+});
+
+app.post("/api/admin/b2b/additional-charges", (req, res) => {
+  const store = loadPricingStore(); const payload = req.body || {}; const now = new Date().toISOString(); const key = `${payload.plan}:${payload.courier}`; const previous = store.b2bAdditionalCharges.find((item) => `${item.plan}:${item.courier}` === key);
+  const data = { ...payload, id: previous?.id || pricingId("b2b-extra", [key]), isActive: payload.isActive !== false, createdAt: previous?.createdAt || now, updatedAt: now }; store.b2bAdditionalCharges = store.b2bAdditionalCharges.filter((item) => `${item.plan}:${item.courier}` !== key); store.b2bAdditionalCharges.push(data); savePricingStore(store); res.json({ data: hydrateB2bCharge(data) });
+});
+app.delete("/api/admin/b2b/additional-charges/:id", (req, res) => { const store = loadPricingStore(); store.b2bAdditionalCharges = store.b2bAdditionalCharges.filter((item) => item.id !== req.params.id); savePricingStore(store); res.sendStatus(204); });
+
+app.get("/api/admin/b2b/pincodes", (req, res) => {
+  let data = loadPricingStore().b2bPincodes.map((item) => ({ ...item, zone: b2bZoneMeta(item.zone), courier: courierMeta(item.courier) })); if (req.query.pincode) data = data.filter((item) => item.pincode.includes(String(req.query.pincode))); const page = Math.max(1, Number(req.query.page || 1)); const limit = Math.max(1, Number(req.query.limit || 50)); res.json({ data: data.slice((page - 1) * limit, page * limit), pagination: { page, limit, total: data.length, totalPages: Math.max(1, Math.ceil(data.length / limit)) } });
+});
+
+function upsertB2bPincode(store, payload) { const now = new Date().toISOString(); const key = `${payload.pincode}:${payload.courier}`; const previous = store.b2bPincodes.find((item) => `${item.pincode}:${item.courier}` === key); const item = { ...payload, flags: { isOda: false, isRemote: false, isMall: false, isSez: false, isCsd: false, isAirport: false, isHighSecurity: false, ...(payload.flags || {}) }, id: previous?.id || pricingId("b2b-pin", [key]), isActive: true, createdAt: previous?.createdAt || now, updatedAt: now }; store.b2bPincodes = store.b2bPincodes.filter((entry) => `${entry.pincode}:${entry.courier}` !== key); store.b2bPincodes.push(item); return item; }
+app.post("/api/admin/b2b/pincodes", (req, res) => { const store = loadPricingStore(); const data = upsertB2bPincode(store, req.body || {}); savePricingStore(store); res.json({ data: { ...data, zone: b2bZoneMeta(data.zone), courier: courierMeta(data.courier) } }); });
+app.put("/api/admin/b2b/pincodes/:id", (req, res) => { const store = loadPricingStore(); const previous = store.b2bPincodes.find((item) => item.id === req.params.id); if (!previous) return res.status(404).json({ message: "Pincode pricing not found" }); store.b2bPincodes = store.b2bPincodes.filter((item) => item.id !== req.params.id); const data = upsertB2bPincode(store, { ...previous, ...req.body }); savePricingStore(store); res.json({ data: { ...data, zone: b2bZoneMeta(data.zone), courier: courierMeta(data.courier) } }); });
+app.post("/api/admin/b2b/pincodes/bulk-import", (req, res) => { const store = loadPricingStore(); const rows = Array.isArray(req.body?.pincodes) ? req.body.pincodes : []; rows.forEach((item) => upsertB2bPincode(store, item)); savePricingStore(store); res.json({ inserted: rows.length, total: rows.length }); });
+app.delete("/api/admin/b2b/pincodes/:id", (req, res) => { const store = loadPricingStore(); store.b2bPincodes = store.b2bPincodes.filter((item) => item.id !== req.params.id); savePricingStore(store); res.sendStatus(204); });
+
+function inferB2cZone(origin, destination) {
+  if (origin === destination) return "A";
+  if (String(origin)[0] === String(destination)[0]) return "B";
+  if (["110001", "400001", "560001", "600001", "700001"].includes(String(origin)) && ["110001", "400001", "560001", "600001", "700001"].includes(String(destination))) return "C";
+  if (/^(7[89]|1[7-9])/.test(String(origin)) || /^(7[89]|1[7-9])/.test(String(destination))) return "E";
+  return "D";
+}
+
+app.get("/api/rates/rate-card", (req, res) => {
+  const plan = String(req.query.plan || "basic"); const pricing = loadPricingStore().b2cPricing.filter((item) => item.plan === plan).map(hydrateB2cPricing); res.json({ plan, pricing });
+});
+
+app.post("/api/rates/available", (req, res) => {
+  const payload = req.body || {}; const plan = String(payload.plan || "basic"); const zoneCode = inferB2cZone(payload.origin, payload.destination); const weight = Math.max(Number(payload.weight || 0), 1); const amount = Number(payload.orderAmount || 0); const cod = String(payload.paymentType).toLowerCase() === "cod";
+  const data = loadPricingStore().b2cPricing.filter((item) => item.plan === plan).flatMap((item) => {
+    const slabIndex = (item.weightSlabs || []).findIndex((slab) => weight >= Number(slab.minWeight || 0) && (slab.maxWeight == null || weight <= Number(slab.maxWeight)));
+    const zone = (item.zoneRates || []).find((row) => b2cZoneMeta(row.zone).code === zoneCode) || item.zoneRates?.[0]; const rate = zone?.slabRates?.[Math.max(0, slabIndex)]; if (!rate) return [];
+    const codCharges = cod ? Math.max(Number(rate.codCharges || 0), amount * Number(rate.codPercent || 0) / 100) : 0; const freight = Number(rate.forward || 0); const other = Number(item.otherCharges || 0); const courier = courierMeta(item.courierId);
+    return [{ courierId: courier.id, name: courier.name, serviceProvider: courier.serviceProvider, serviceProviderDisplayName: courier.displayName, logo: null, mode: item.mode || "surface", zone: { code: zoneCode, name: b2cZoneMeta(zone.zone).name }, chargeableWeight: weight, minWeight: Number(item.weightSlabs?.[Math.max(0, slabIndex)]?.minWeight || 0), rate: { forward: freight, rto: Number(rate.rto || 0), codCharges, otherCharges: other, freightCharge: freight, totalCharge: Math.round((freight + codCharges + other) * 100) / 100 } }];
+  }); res.json({ success: true, data });
+});
+
+function inferB2bZone(pincode) { const first = String(pincode || "")[0]; if (["1", "2", "3"].includes(first)) return "N"; if (["4", "5"].includes(first)) return "W"; if (["6"].includes(first)) return "S"; if (["7"].includes(first)) return "E"; return "NE"; }
+function roundMoney(value) { return Math.round(Number(value || 0) * 100) / 100; }
+
+function calculateSavedB2bRates(payload) {
+  const store = loadPricingStore(); const plan = String(payload.plan || "basic"); const originCode = inferB2bZone(payload.origin); const destinationCode = inferB2bZone(payload.destination); const packages = (payload.packages || []).map((pkg) => { const deadWeight = Number(pkg.weight || 0); const volumetricWeight = (Number(pkg.length || 0) * Number(pkg.breadth || 0) * Number(pkg.height || 0)) / 5000; return { deadWeight, volumetricWeight: roundMoney(volumetricWeight), billableWeight: Math.max(deadWeight, volumetricWeight) }; }); const rawWeight = packages.reduce((sum, pkg) => sum + pkg.billableWeight, 0);
+  return store.b2bZoneRates.filter((item) => item.isActive !== false && item.plan === plan && b2bZoneMeta(item.originZone).code === originCode && b2bZoneMeta(item.destinationZone).code === destinationCode).map((item) => {
+    const courier = courierMeta(item.courier); const extras = store.b2bAdditionalCharges.find((entry) => entry.plan === plan && entry.courier === item.courier) || {}; const billableWeight = Math.max(rawWeight, Number(extras.minimumChargeableWeight || 0), 1); const baseFreight = Math.max(billableWeight * Number(item.ratePerKg || 0), Number(extras.minimumChargeableAmount || 0)); const overheads = []; const add = (code, name, amount) => { if (amount > 0) overheads.push({ code, name, type: "fixed", amount: roundMoney(amount) }); }; add("AWB", "AWB Charges", Number(extras.awbCharges || 0)); add("FSC", "Fuel Surcharge", baseFreight * Number(extras.fuelSurchargePercent || 0) / 100); if (String(payload.paymentType).toLowerCase() === "cod") add("COD", "COD Charges", Math.max(Number(extras.codChargesFlat || 0), Number(payload.orderAmount || 0) * Number(extras.codPercent || 0) / 100, Number(extras.codMinimum || 0))); const total = baseFreight + overheads.reduce((sum, row) => sum + row.amount, 0);
+    return { courierId: courier.id, name: courier.name, serviceProvider: courier.serviceProvider, serviceProviderDisplayName: courier.displayName, logo: null, zone: { originCode, originName: b2bZoneMeta(item.originZone).name, destinationCode, destinationName: b2bZoneMeta(item.destinationZone).name }, billableWeight, packages, rate: { baseFreight: roundMoney(baseFreight), overheads, rtoRate: roundMoney(billableWeight * Number(item.rtoRatePerKg || 0)), total: roundMoney(total), billableWeight, packages } };
+  });
+}
+
+app.post("/api/rates/b2b/available", (req, res) => res.json({ success: true, data: calculateSavedB2bRates(req.body || {}) }));
+app.post("/api/admin/b2b/calculate-rate", (req, res) => res.json({ data: calculateSavedB2bRates(req.body || {}) }));
 
 registerStorageRoutes(app, { dataDir, sellerRegistry });
 

@@ -116,7 +116,16 @@ export const b2bZoneRatesApi = {
 
     try {
       const { data } = await api.get("/b2b/zone-rates", { params });
-      return Array.isArray(data?.data) && data.data.length > 0 ? data : { data: defaultB2bZoneRates(params) };
+      if (!Array.isArray(data?.data) || data.data.length === 0) return { data: defaultB2bZoneRates(params) };
+      const merged = new Map(defaultB2bZoneRates(params).map((item) => [
+        `${item.plan}:${item.courier.id}:${item.originZone.id}:${item.destinationZone.id}`,
+        item,
+      ]));
+      data.data.forEach((item: B2bZoneRate) => merged.set(
+        `${item.plan}:${item.courier.id}:${item.originZone.id}:${item.destinationZone.id}`,
+        item,
+      ));
+      return { data: [...merged.values()] };
     } catch {
       return { data: defaultB2bZoneRates(params) };
     }
@@ -148,7 +157,10 @@ export const b2bAdditionalChargesApi = {
 
     try {
       const { data } = await api.get("/b2b/additional-charges", { params });
-      return Array.isArray(data?.data) && data.data.length > 0 ? data : { data: defaultB2bAdditionalCharges(params) };
+      if (!Array.isArray(data?.data) || data.data.length === 0) return { data: defaultB2bAdditionalCharges(params) };
+      const merged = new Map(defaultB2bAdditionalCharges(params).map((item) => [`${item.plan}:${item.courier.id}`, item]));
+      data.data.forEach((item: B2bAdditionalCharge) => merged.set(`${item.plan}:${item.courier.id}`, item));
+      return { data: [...merged.values()] };
     } catch {
       return { data: defaultB2bAdditionalCharges(params) };
     }

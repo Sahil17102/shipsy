@@ -77,9 +77,17 @@ export const b2cPricingApi = {
     try {
       const { data } = await api.get("/b2c-pricing", { params });
       const response = data as ListPricingResponse;
-      return Array.isArray(response.pricing) && response.pricing.length > 0
-        ? response
-        : defaultB2cPricingResponse(params);
+      if (!Array.isArray(response.pricing) || response.pricing.length === 0) return defaultB2cPricingResponse(params);
+      const seeded = defaultB2cPricingResponse({ ...params, page: 1, limit: 500 }).pricing;
+      const merged = new Map(seeded.map((item) => [`${item.courier.id}:${item.plan}`, item]));
+      response.pricing.forEach((item) => merged.set(`${item.courier.id}:${item.plan}`, item));
+      const pricing = [...merged.values()];
+      const page = Math.max(1, Number(params?.page ?? 1));
+      const limit = Math.max(1, Number(params?.limit ?? 50));
+      return {
+        pricing: pricing.slice((page - 1) * limit, page * limit),
+        pagination: { page, limit, total: pricing.length, totalPages: Math.max(1, Math.ceil(pricing.length / limit)) },
+      };
     } catch {
       return defaultB2cPricingResponse(params);
     }
