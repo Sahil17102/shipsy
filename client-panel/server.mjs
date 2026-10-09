@@ -929,10 +929,15 @@ app.post("/api/wallet/orders/debit", (req, res, next) => {
     if (!orderId) return res.status(400).json({ message: "Order ID is required for wallet debit." });
     if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "A valid shipping charge is required before creating the order." });
     const ledger = walletLedger();
+    const refundedDebitIds = new Set(ledger.transactions
+      .filter((transaction) => transaction.type === "credit" && transaction.meta?.source === "order_shipping_refund")
+      .map((transaction) => String(transaction.meta?.debitTransactionId || ""))
+      .filter(Boolean));
     const existing = ledger.transactions.find((transaction) =>
       transaction.type === "debit" &&
       String(transaction.userId) === String(seller.id) &&
-      String(transaction.meta?.orderId || "") === orderId,
+      String(transaction.meta?.orderId || "") === orderId &&
+      !refundedDebitIds.has(String(transaction.id)),
     );
     if (existing) return res.json({ balance: walletBalance(ledger.transactions, seller.id), currency: "INR", transaction: existing, alreadyDebited: true });
     const balance = walletBalance(ledger.transactions, seller.id);
@@ -958,9 +963,17 @@ app.post("/api/wallet/orders/refund", (req, res, next) => {
     const serviceProvider = String(req.body?.serviceProvider || "courier").trim();
     if (!orderId || !Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "A valid order and refund amount are required." });
     const ledger = walletLedger();
-    const debit = ledger.transactions.find((transaction) => transaction.type === "debit" && String(transaction.userId) === String(seller.id) && String(transaction.meta?.orderId || "") === orderId);
-    if (!debit) return res.status(409).json({ message: "No matching shipment debit was found for this refund." });
-    const existing = ledger.transactions.find((transaction) => transaction.type === "credit" && String(transaction.userId) === String(seller.id) && transaction.meta?.source === "order_shipping_refund" && String(transaction.meta?.orderId || "") === orderId);
+    const refundedDebitIds = new Set(ledger.transactions
+      .filter((transaction) => transaction.type === "credit" && transaction.meta?.source === "order_shipping_refund")
+      .map((transaction) => String(transaction.meta?.debitTransactionId || ""))
+      .filter(Boolean));
+    const debit = ledger.transactions.find((transaction) => transaction.type === "debit" && String(transaction.userId) === String(seller.id) && String(transaction.meta?.orderId || "") === orderId && !refundedDebitIds.has(String(transaction.id)));
+    if (!debit) {
+      const priorRefund = ledger.transactions.find((transaction) => transaction.type === "credit" && String(transaction.userId) === String(seller.id) && transaction.meta?.source === "order_shipping_refund" && String(transaction.meta?.orderId || "") === orderId);
+      if (priorRefund) return res.json({ balance: walletBalance(ledger.transactions, seller.id), currency: "INR", transaction: priorRefund, alreadyRefunded: true });
+      return res.status(409).json({ message: "No matching shipment debit was found for this refund." });
+    }
+    const existing = ledger.transactions.find((transaction) => transaction.type === "credit" && String(transaction.userId) === String(seller.id) && transaction.meta?.source === "order_shipping_refund" && String(transaction.meta?.debitTransactionId || "") === String(debit.id));
     if (existing) return res.json({ balance: walletBalance(ledger.transactions, seller.id), currency: "INR", transaction: existing, alreadyRefunded: true });
     const refundAmount = Math.min(amount, Number(debit.amount || 0));
     const transaction = {
