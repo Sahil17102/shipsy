@@ -559,6 +559,23 @@ app.post(deliveryPaths("addwarehouse"), async (req, res, next) => {
       isDefault: false,
       isActive: true,
     };
+    // Reuse an existing LogixMitra warehouse for the same pickup location.
+    // Browser-local mappings can be missing after a new login/device; blindly
+    // creating it again makes a valid shipment fail on a duplicate warehouse.
+    const existingResponse = await deliveryFetch("auth/getAllWarehouses", { method: "GET" });
+    const { body: existingBody } = await readUpstream(existingResponse);
+    const existingWarehouses = Array.isArray(existingBody?.data)
+      ? existingBody.data
+      : Array.isArray(existingBody) ? existingBody : [];
+    const normalizedName = payload.name.trim().toLowerCase();
+    const existing = existingWarehouses.find((warehouse) =>
+      warehouse?.isActive !== false &&
+      String(warehouse?.pincode || "").trim() === payload.pincode &&
+      String(warehouse?.name || warehouse?.warehouseName || "").trim().toLowerCase() === normalizedName,
+    );
+    if (existing?.id) {
+      return res.json({ status: true, warehouseId: String(existing.id), response: "Existing pickup location linked" });
+    }
     const response = await deliveryFetch("auth/createWarehouse", { method: "POST", body: JSON.stringify(payload) });
     const { body } = await readUpstream(response);
     if (!response.ok || body?.success === false) {
