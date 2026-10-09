@@ -94,7 +94,7 @@ function fshipCredentials(): ProviderCredentialsResponse {
       fields,
       description: "Used for live FShip courier rates, shipment creation, pickup, cancellation, labels, and tracking.",
       values: {
-        baseUrl: "https://capi.fship.in",
+        baseUrl: "https://capi.fship.in/api",
         clientKey: "",
       },
     },
@@ -102,7 +102,7 @@ function fshipCredentials(): ProviderCredentialsResponse {
       fields,
       description: "B2B uses the same FShip API credentials by default.",
       values: {
-        baseUrl: "https://capi.fship.in",
+        baseUrl: "https://capi.fship.in/api",
         clientKey: "",
       },
       sameAsB2c: true,
@@ -262,7 +262,7 @@ function mergeSeedProviders(providers: ProviderListItem[]): ProviderListItem[] {
     .filter((provider) => !blocked.has(provider.serviceProvider.toLowerCase()))
     .map((provider) => {
       const slug = provider.serviceProvider.toLowerCase();
-      if (slug === "logixmitra") {
+      if (slug === "logixmitra" || slug === "delivery") {
         return {
           ...provider,
           id: "sp-logixmitra",
@@ -338,8 +338,8 @@ function readStaticCredentials(providerId: string): ProviderCredentialsResponse 
     b2b: { ...fallback.b2b, ...creds.b2b, fields: fallback.b2b.fields, description: fallback.b2b.description, values: mergeValues(fallback.b2b.values, creds.b2b?.values) },
   };
   if (providerId === "sp-fship") {
-    merged.b2c.values = { baseUrl: "https://capi.fship.in", clientKey: merged.b2c.values.clientKey || "" };
-    merged.b2b.values = { baseUrl: "https://capi.fship.in", clientKey: merged.b2b.values.clientKey || "" };
+    merged.b2c.values = { baseUrl: "https://capi.fship.in/api", clientKey: merged.b2c.values.clientKey || "" };
+    merged.b2b.values = { baseUrl: "https://capi.fship.in/api", clientKey: merged.b2b.values.clientKey || "" };
     merged.b2b.sameAsB2c = true;
   }
   if (providerId === "sp-logixmitra") merged.b2b.sameAsB2c = true;
