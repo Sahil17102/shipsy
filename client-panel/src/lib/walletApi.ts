@@ -270,22 +270,19 @@ export const walletApi = {
       const shortfall = Math.max(0, roundedAmount - Number(currentWallet.balance));
       throw new Error(`Insufficient wallet balance. Add at least ₹${shortfall.toFixed(2)} to book this shipment.`);
     }
-    const response = await fetch(SHARED_WALLET_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: currentUserId(), type: "debit", amount: roundedAmount, reason: `Shipping charge - ${orderId}`, source: "order_shipping_charge", orderId, serviceProvider }),
+    const { data } = await api.post<WalletBalance>("/wallet/orders/debit", {
+      amount: roundedAmount,
+      orderId,
+      serviceProvider,
     });
-    const result = await response.json() as { error?: string; wallet?: WalletBalance };
-    if (!response.ok || !result.wallet) throw new Error(result.error || "Unable to debit wallet");
-    return result.wallet;
+    return data;
   },
 
   refundOrder: async (amount: number, orderId: string, serviceProvider?: string): Promise<void> => {
-    const response = await fetch(SHARED_WALLET_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: currentUserId(), type: "credit", amount: Math.round(amount * 100) / 100, reason: `Shipping charge refund - ${orderId}`, source: "order_shipping_refund", orderId, serviceProvider }),
+    await api.post("/wallet/orders/refund", {
+      amount: Math.round(amount * 100) / 100,
+      orderId,
+      serviceProvider,
     });
-    if (!response.ok) throw new Error("Shipment failed and wallet refund could not be recorded");
   },
 };

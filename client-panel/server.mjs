@@ -593,10 +593,16 @@ app.post(deliveryPaths("updatewarehouse"), async (req, res, next) => {
 
 app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
   try {
+    const session = await getDeliverySession();
     const products = Array.isArray(req.body?.products) ? req.body.products : [];
     const subtotal = products.reduce((sum, product) => sum + (Number(product?.unitPrice || 0) * Number(product?.quantity || 0)), 0);
     const orderAmount = Number(req.body?.order_Amount || req.body?.total_Amount || subtotal || 0);
+    const requestedCourier = String(req.body?.courierName || "").trim();
+    // Admin-priced fallback services are not LogixMitra courier identifiers.
+    // Leaving courier empty is supported upstream and lets it be assigned later.
+    const genericCourierNames = new Set(["delivery", "delivery surface", "logixmitra", "logix mitra"]);
     const payload = {
+      user_id: Number(session.userId),
       referenceId: String(req.body?.orderId || ""),
       orderNumber: String(req.body?.orderId || ""),
       orderDate: String(req.body?.orderDate || new Date().toISOString().slice(0, 10)),
@@ -619,7 +625,7 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
       currency: "INR",
       warehouse: Number(req.body?.pick_Address_ID),
       platform: "ShipSy",
-      courier: String(req.body?.courierName || ""),
+      courier: genericCourierNames.has(requestedCourier.toLowerCase()) ? "" : requestedCourier,
       items: products.map((product) => ({
         name: String(product?.productName || "Item"),
         sku: String(product?.sku || product?.productId || ""),
@@ -894,6 +900,60 @@ app.get("/api/wallet/transactions", (req, res, next) => {
       stats: { totalCredits: credits, totalDebits: debits },
       courierOptions: [...new Set(all.map((transaction) => transaction.meta?.serviceProvider).filter(Boolean))],
     });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/wallet/orders/debit", (req, res, next) => {
+  try {
+    const seller = requireSeller(req);
+    const amount = Math.round(Number(req.body?.amount) * 100) / 100;
+    const orderId = String(req.body?.orderId || "").trim();
+    const serviceProvider = String(req.body?.serviceProvider || "courier").trim();
+    if (!orderId) return res.status(400).json({ message: "Order ID is required for wallet debit." });
+    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "A valid shipping charge is required before creating the order." });
+    const ledger = walletLedger();
+    const existing = ledger.transactions.find((transaction) =>
+      transaction.type === "debit" &&
+      String(transaction.userId) === String(seller.id) &&
+      String(transaction.meta?.orderId || "") === orderId,
+    );
+    if (existing) return res.json({ balance: walletBalance(ledger.transactions, seller.id), currency: "INR", transaction: existing, alreadyDebited: true });
+    const balance = walletBalance(ledger.transactions, seller.id);
+    if (balance < amount) {
+      return res.status(409).json({ message: `Insufficient wallet balance. Add at least INR ${(amount - balance).toFixed(2)} to book this shipment.`, balance, required: amount });
+    }
+    const transaction = {
+      id: crypto.randomUUID(), walletId: `wallet-${seller.id}`, userId: seller.id, amount, currency: "INR", type: "debit",
+      reason: `Shipping charge - ${orderId}`, ref: orderId,
+      meta: { orderId, serviceProvider, source: "order_shipping_charge" }, createdAt: new Date().toISOString(),
+    };
+    ledger.transactions.unshift(transaction);
+    writeJsonFile(walletLedgerFile, ledger);
+    res.json({ balance: walletBalance(ledger.transactions, seller.id), currency: "INR", transaction, alreadyDebited: false });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/wallet/orders/refund", (req, res, next) => {
+  try {
+    const seller = requireSeller(req);
+    const amount = Math.round(Number(req.body?.amount) * 100) / 100;
+    const orderId = String(req.body?.orderId || "").trim();
+    const serviceProvider = String(req.body?.serviceProvider || "courier").trim();
+    if (!orderId || !Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "A valid order and refund amount are required." });
+    const ledger = walletLedger();
+    const debit = ledger.transactions.find((transaction) => transaction.type === "debit" && String(transaction.userId) === String(seller.id) && String(transaction.meta?.orderId || "") === orderId);
+    if (!debit) return res.status(409).json({ message: "No matching shipment debit was found for this refund." });
+    const existing = ledger.transactions.find((transaction) => transaction.type === "credit" && String(transaction.userId) === String(seller.id) && transaction.meta?.source === "order_shipping_refund" && String(transaction.meta?.orderId || "") === orderId);
+    if (existing) return res.json({ balance: walletBalance(ledger.transactions, seller.id), currency: "INR", transaction: existing, alreadyRefunded: true });
+    const refundAmount = Math.min(amount, Number(debit.amount || 0));
+    const transaction = {
+      id: crypto.randomUUID(), walletId: `wallet-${seller.id}`, userId: seller.id, amount: refundAmount, currency: "INR", type: "credit",
+      reason: `Shipping charge refund - ${orderId}`, ref: orderId,
+      meta: { orderId, serviceProvider, source: "order_shipping_refund", debitTransactionId: debit.id }, createdAt: new Date().toISOString(),
+    };
+    ledger.transactions.unshift(transaction);
+    writeJsonFile(walletLedgerFile, ledger);
+    res.json({ balance: walletBalance(ledger.transactions, seller.id), currency: "INR", transaction, alreadyRefunded: false });
   } catch (error) { next(error); }
 });
 
