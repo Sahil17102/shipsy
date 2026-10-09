@@ -14,8 +14,10 @@ import {
   type CourierOrdersResponse,
 } from "./courierApi";
 import {
+  deliveryApi,
   fshipApi,
   isFshipApiConfigured,
+  isDeliveryServiceProvider,
   isFshipServiceProvider,
   shouldUseFshipApi,
   type FshipCreateForwardOrderPayload,
@@ -314,14 +316,27 @@ function getProviderAwb(result: {
   return String(result.awb_no ?? result.data?.awb_no ?? result.awb ?? result.data?.awb ?? result.awb_number ?? result.data?.awb_number ?? "");
 }
 
+type ConnectedShippingApi = typeof fshipApi;
+
+function connectedApiFor(serviceProvider?: string | null): ConnectedShippingApi {
+  return isDeliveryServiceProvider(serviceProvider) ? deliveryApi : fshipApi;
+}
+
+function readConnectedOrders(): Array<Order & { providerOrderId: string }> {
+  const direct = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+  const legacyDelivery = deliveryApi.readStoredOrders<Order & { providerOrderId: string }>()
+    .map((order) => ({ ...order, serviceProvider: "logixmitra" }));
+  return [...direct, ...legacyDelivery];
+}
+
 function extractFshipProviderId(id: string): string {
-  const stored = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+  const stored = readConnectedOrders();
   const match = stored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
   return String(match?.awb || match?.providerOrderId || id);
 }
 
 function extractFshipApiOrderId(id: string): string {
-  const stored = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+  const stored = readConnectedOrders();
   const match = stored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
   return String(match?.providerOrderId || id);
 }
@@ -339,21 +354,22 @@ function mapFshipStatus(status?: string): Order["status"] {
   return "booked";
 }
 
-function findStoredFshipPickupAddress(id: string): StoredFshipPickupAddress | undefined {
-  return fshipApi
+function findStoredFshipPickupAddress(id: string, providerApi: ConnectedShippingApi): StoredFshipPickupAddress | undefined {
+  return providerApi
     .readStoredWarehouses<StoredFshipPickupAddress>()
     .find((address) => address.id === id || address.providerWarehouseId === id || String(address.warehouseId || "") === id);
 }
 
 async function resolveFshipPickupAddress(
   pickupAddressId: string,
+  providerApi: ConnectedShippingApi,
 ): Promise<{ id: string; city: string; pincode: string }> {
   if (/^\d+$/.test(pickupAddressId)) {
-    const stored = findStoredFshipPickupAddress(pickupAddressId);
+    const stored = findStoredFshipPickupAddress(pickupAddressId, providerApi);
     return { id: pickupAddressId, city: String(stored?.city || ""), pincode: String(stored?.pincode || "") };
   }
 
-  const address = findStoredFshipPickupAddress(pickupAddressId) || findStoredPickupAddress(pickupAddressId);
+  const address = findStoredFshipPickupAddress(pickupAddressId, providerApi) || findStoredPickupAddress(pickupAddressId);
   if (!address) return { id: pickupAddressId, city: "", pincode: "" };
 
   const existingId = String((address as StoredFshipPickupAddress).providerWarehouseId || (address as StoredFshipPickupAddress).warehouseId || "");
@@ -361,7 +377,7 @@ async function resolveFshipPickupAddress(
     return { id: existingId, city: String(address.city || ""), pincode: String(address.pincode || "") };
   }
 
-  const result = await fshipApi.addWarehouse({
+  const result = await providerApi.addWarehouse({
     warehouseId: 0,
     warehouseName: String(address.nickname || `Warehouse ${Date.now()}`).slice(0, 80),
     contactName: String(address.contactName || "Warehouse Manager"),
@@ -380,13 +396,13 @@ async function resolveFshipPickupAddress(
   }
 
   const providerWarehouseId = String(result.warehouseId);
-  const warehouses = fshipApi.readStoredWarehouses<StoredFshipPickupAddress>();
+  const warehouses = providerApi.readStoredWarehouses<StoredFshipPickupAddress>();
   const updated = {
     ...address,
     providerWarehouseId,
     warehouseId: providerWarehouseId,
   } as StoredFshipPickupAddress;
-  fshipApi.writeStoredWarehouses([updated, ...warehouses.filter((item) => item.id !== address.id)]);
+  providerApi.writeStoredWarehouses([updated, ...warehouses.filter((item) => item.id !== address.id)]);
   return { id: providerWarehouseId, city: String(address.city || ""), pincode: String(address.pincode || "") };
 }
 
@@ -448,14 +464,16 @@ function toFshipCreateForwardPayload(
   };
 }
 
-async function createFshipOrder(data: CreateOrderPayload): Promise<Order> {
+async function createConnectedProviderOrder(data: CreateOrderPayload): Promise<Order> {
   if (!isFshipApiConfigured()) {
     throw new Error("Shipping provider is not configured on the ShipSy API server.");
   }
 
-  const providerPickupAddress = await resolveFshipPickupAddress(data.pickupAddressId);
+  const providerApi = connectedApiFor(data.serviceProvider);
+  const serviceProvider = isDeliveryServiceProvider(data.serviceProvider) ? "logixmitra" : "fship";
+  const providerPickupAddress = await resolveFshipPickupAddress(data.pickupAddressId, providerApi);
   const payload = toFshipCreateForwardPayload(data, providerPickupAddress);
-  const result = await fshipApi.createForwardOrder(payload);
+  const result = await providerApi.createForwardOrder(payload);
   if (result.status === false) throw new Error(result.response || "Shipping provider order creation failed");
   const providerOrderId = String(result.apiorderid || `${data.orderId}-${Date.now()}`);
   const awb = String(result.waybill || "");
@@ -464,13 +482,13 @@ async function createFshipOrder(data: CreateOrderPayload): Promise<Order> {
     ...order,
     id: providerOrderId,
     status: awb ? "booked" : "processing",
-    serviceProvider: "fship",
+    serviceProvider,
     courierName: data.courierName || getCourierDisplayName(data.courierId),
     providerOrderId,
     awb,
   };
-  const existing = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
-  fshipApi.writeStoredOrders([updated, ...existing.filter((item) => item.id !== updated.id)]);
+  const existing = providerApi.readStoredOrders<Order & { providerOrderId: string }>();
+  providerApi.writeStoredOrders([updated, ...existing.filter((item) => item.id !== updated.id)]);
   await mirrorProviderOrder(updated);
   return updated;
 }
@@ -546,7 +564,7 @@ async function createIndiaPostOrder(data: CreateOrderPayload): Promise<Order> {
   return order;
 }
 
-function mapFshipTrackingEvents(providerOrderId: string, awb: string, data: FshipTrackingResponse): TrackingEvent[] {
+function mapFshipTrackingEvents(providerOrderId: string, awb: string, data: FshipTrackingResponse, source: "fship" | "delivery"): TrackingEvent[] {
   const scans = data.trackingdata ?? [];
   if (scans.length > 0) {
     return scans.map((scan, index) => ({
@@ -557,7 +575,7 @@ function mapFshipTrackingEvents(providerOrderId: string, awb: string, data: Fshi
       statusText: scan.Status || "Shipment update",
       location: scan.Location,
       remarks: scan.Remark,
-      source: "logixmitra",
+      source,
       eventTimestamp: scan.DateandTime,
       createdAt: scan.DateandTime ? new Date(scan.DateandTime).toISOString() : new Date().toISOString(),
     }));
@@ -571,7 +589,7 @@ function mapFshipTrackingEvents(providerOrderId: string, awb: string, data: Fshi
     statusText: summary?.status || data.response || "Shipment update",
     location: summary?.location,
     remarks: summary?.remark || data.response,
-    source: "logixmitra",
+    source,
     eventTimestamp: summary?.lastscandate || summary?.lastscanned,
     createdAt: new Date().toISOString(),
   }];
@@ -959,8 +977,8 @@ export const ordersApi = {
     const provider = data.serviceProvider || data.courierName || "courier";
     await walletApi.debitOrder(shippingCharge, data.orderId, provider);
     try {
-      if (isFshipServiceProvider(data.serviceProvider) || data.courierId.toLowerCase().includes("logixmitra")) {
-        return await createFshipOrder(data);
+      if (isFshipServiceProvider(data.serviceProvider) || isDeliveryServiceProvider(data.serviceProvider) || data.courierId.toLowerCase().includes("logixmitra")) {
+        return await createConnectedProviderOrder(data);
       }
 
       if (data.serviceProvider?.toLowerCase() === "delhivery" || data.courierId.toLowerCase().includes("delhivery")) {
@@ -1006,7 +1024,7 @@ export const ordersApi = {
     }
 
     if (shouldUseFshipApi()) {
-      let orders = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+      let orders = readConnectedOrders();
       if (params?.status) orders = orders.filter((order) => order.status === params.status);
       if (params?.orderType) orders = orders.filter((order) => order.orderType === params.orderType);
       if (params?.paymentType) orders = orders.filter((order) => order.paymentType === params.paymentType);
@@ -1051,8 +1069,7 @@ export const ordersApi = {
       return order;
     }
 
-    const fshipMatch = fshipApi
-      .readStoredOrders<Order & { providerOrderId: string }>()
+    const fshipMatch = readConnectedOrders()
       .find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
     if (fshipMatch) return fshipMatch;
 
@@ -1087,26 +1104,32 @@ export const ordersApi = {
   // ── New lifecycle APIs ──
 
   manifestOrders: async (orderIds: string[]): Promise<ManifestResponse> => {
-    const storedFshipOrders = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+    const storedFshipOrders = readConnectedOrders();
     const fshipOrders = orderIds
       .map((id) => storedFshipOrders.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id))
       .filter((order): order is Order & { providerOrderId: string } => Boolean(order));
     if (fshipOrders.length === orderIds.length && fshipOrders.length > 0) {
-      const result = await fshipApi.registerPickup(fshipOrders.map((order) => order.awb).filter(Boolean));
-      if (!result.status) {
-        return {
-          ordersProcessed: 0,
-          errors: fshipOrders.map((order) => ({ awb: order.awb || order.orderId, error: result.response || "Pickup registration failed" })),
-        };
+      let ordersProcessed = 0;
+      const errors: ManifestResponse["errors"] = [];
+      for (const serviceProvider of ["fship", "logixmitra"] as const) {
+        const group = fshipOrders.filter((order) => (isDeliveryServiceProvider(order.serviceProvider) ? "logixmitra" : "fship") === serviceProvider);
+        if (group.length === 0) continue;
+        const providerApi = connectedApiFor(serviceProvider);
+        const result = await providerApi.registerPickup(group.map((order) => order.awb).filter(Boolean)).catch((error) => ({ status: false, response: error instanceof Error ? error.message : "Pickup registration failed" }));
+        if (!result.status) {
+          errors.push(...group.map((order) => ({ awb: order.awb || order.orderId, error: result.response || "Pickup registration failed" })));
+          continue;
+        }
+        ordersProcessed += group.length;
+        const now = new Date().toISOString();
+        const stored = providerApi.readStoredOrders<Order & { providerOrderId: string }>();
+        providerApi.writeStoredOrders(stored.map((order) =>
+          group.some((item) => item.id === order.id)
+            ? { ...order, status: "pickup_initiated" as const, pickupRequestedAt: now, updatedAt: now }
+            : order,
+        ));
       }
-      const now = new Date().toISOString();
-      const updated = storedFshipOrders.map((order) =>
-        fshipOrders.some((item) => item.id === order.id)
-          ? { ...order, status: "pickup_initiated" as const, pickupRequestedAt: now, updatedAt: now }
-          : order,
-      );
-      fshipApi.writeStoredOrders(updated);
-      return { ordersProcessed: fshipOrders.length, errors: [] };
+      return { ordersProcessed, errors };
     }
 
     const selectedOrders = (await Promise.all(orderIds.map((id) => ordersApi.getById(id).catch(() => null))))
@@ -1268,12 +1291,14 @@ export const ordersApi = {
   },
 
   cancelOrder: async (id: string, reason?: string): Promise<Order> => {
-    const fshipStored = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
+    const fshipStored = readConnectedOrders();
     const fshipOrder = fshipStored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
     if (fshipOrder) {
-      await fshipApi.cancelOrder(fshipOrder.orderId || fshipOrder.providerOrderId || id, reason);
+      const providerApi = connectedApiFor(fshipOrder.serviceProvider);
+      await providerApi.cancelOrder(fshipOrder.orderId || fshipOrder.providerOrderId || id, reason);
       const updated = { ...fshipOrder, status: "cancelled" as const, cancelledAt: new Date().toISOString() };
-      fshipApi.writeStoredOrders([updated, ...fshipStored.filter((item) => item.id !== updated.id)]);
+      const providerStored = providerApi.readStoredOrders<Order & { providerOrderId: string }>();
+      providerApi.writeStoredOrders([updated, ...providerStored.filter((item) => item.id !== updated.id)]);
       return updated;
     }
 
@@ -1300,11 +1325,12 @@ export const ordersApi = {
 
   getTracking: async (id: string): Promise<TrackingEvent[]> => {
     const fshipAwb = extractFshipProviderId(id);
-    const fshipStored = fshipApi.readStoredOrders<Order & { providerOrderId: string }>();
-    const hasFshipOrder = fshipStored.some((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
-    if (hasFshipOrder) {
-      const history = await fshipApi.trackingHistory(fshipAwb).catch(() => fshipApi.shipmentSummary(fshipAwb));
-      return mapFshipTrackingEvents(extractFshipApiOrderId(id), fshipAwb, history);
+    const fshipStored = readConnectedOrders();
+    const fshipOrder = fshipStored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
+    if (fshipOrder) {
+      const providerApi = connectedApiFor(fshipOrder.serviceProvider);
+      const history = await providerApi.trackingHistory(fshipAwb).catch(() => providerApi.shipmentSummary(fshipAwb));
+      return mapFshipTrackingEvents(extractFshipApiOrderId(id), fshipAwb, history, isDeliveryServiceProvider(fshipOrder.serviceProvider) ? "delivery" : "fship");
     }
 
     if (shouldUseCourierApi()) {

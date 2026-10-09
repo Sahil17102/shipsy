@@ -5,12 +5,18 @@ import axios from "axios";
 // Keep the private FShip signature on the dedicated ShipSy VPS API service;
 // the browser never receives the provider credential.
 const DEFAULT_FSHIP_API_URL = `${(import.meta.env.VITE_API_URL || "https://api.goshipsy.in/api").replace(/\/+$/, "")}/providers/fship`;
+const DEFAULT_DELIVERY_API_URL = `${(import.meta.env.VITE_API_URL || "https://api.goshipsy.in/api").replace(/\/+$/, "")}/providers/delivery`;
 const FS_TOKEN_STORAGE_KEY = "shipsy-fship-signature";
-const FS_WAREHOUSE_STORAGE_KEY = "shipsy-fship-warehouses";
-const FS_ORDERS_STORAGE_KEY = "shipsy-fship-created-orders";
+const FS_WAREHOUSE_STORAGE_KEY = "shipsy-fship-direct-warehouses";
+const FS_ORDERS_STORAGE_KEY = "shipsy-fship-direct-created-orders";
+const DELIVERY_WAREHOUSE_STORAGE_KEY = "shipsy-fship-warehouses";
+const DELIVERY_ORDERS_STORAGE_KEY = "shipsy-fship-created-orders";
 
 const fshipApiBaseUrl = (
   import.meta.env.VITE_FSHIP_API_URL || DEFAULT_FSHIP_API_URL
+).replace(/\/+$/, "");
+const deliveryApiBaseUrl = (
+  import.meta.env.VITE_DELIVERY_API_URL || DEFAULT_DELIVERY_API_URL
 ).replace(/\/+$/, "");
 
 const fshipSignature = import.meta.env.VITE_FSHIP_CLIENT_KEY || import.meta.env.VITE_FSHIP_SIGNATURE || "";
@@ -54,6 +60,11 @@ export function isFshipServiceProvider(value?: string | null): boolean {
   return key === "fship";
 }
 
+export function isDeliveryServiceProvider(value?: string | null): boolean {
+  const key = String(value || "").toLowerCase();
+  return key === "delivery" || key === "logixmitra";
+}
+
 export function isFshipApiConfigured(): boolean {
   return serverManagedFship || Boolean(fshipSignature || readStored(FS_TOKEN_STORAGE_KEY));
 }
@@ -92,6 +103,15 @@ const fshipHttp = axios.create({
   },
 });
 
+const deliveryHttp = axios.create({
+  baseURL: deliveryApiBaseUrl,
+  timeout: 60_000,
+  headers: {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  },
+});
+
 async function fshipRequest<T>(method: "get" | "post", url: string, data?: unknown): Promise<T> {
   try {
     const serverManaged = serverManagedFship;
@@ -103,6 +123,15 @@ async function fshipRequest<T>(method: "get" | "post", url: string, data?: unkno
         ...(serverManaged ? {} : { signature: getSignature() }),
       },
     });
+    return res.data;
+  } catch (err) {
+    throw normalizeApiError(err);
+  }
+}
+
+async function deliveryRequest<T>(method: "get" | "post", url: string, data?: unknown): Promise<T> {
+  try {
+    const res = await deliveryHttp.request<T>({ method, url, data });
     return res.data;
   } catch (err) {
     throw normalizeApiError(err);
@@ -275,7 +304,7 @@ export const fshipApi = {
     fshipRequest<FshipCreateForwardOrderResponse>("post", "/createforwardorder", payload),
 
   cancelOrder: (referenceId: string, reason?: string) =>
-    fshipRequest<{ status: boolean; response?: string }>("post", "/cancelorder", { referenceId, reason: reason || "" }),
+    fshipRequest<{ status: boolean; response?: string }>("post", "/cancelorder", { referenceId, waybill: referenceId, reason: reason || "" }),
 
   registerPickup: (waybills: string[]) =>
     fshipRequest<{ status: boolean; response?: string; apipickuporderids?: Array<{ pickupOrderId: number | string; waybills: string[] }> }>(
@@ -301,4 +330,48 @@ export const fshipApi = {
 
   writeStoredOrders: <T = StoredFshipOrder>(orders: T[]) =>
     writeJsonArray(FS_ORDERS_STORAGE_KEY, orders),
+};
+
+export const deliveryApi = {
+  getCouriers: () => deliveryRequest<FshipCourier[]>("get", "/getallcourier"),
+
+  addWarehouse: (payload: FshipWarehousePayload) =>
+    deliveryRequest<FshipWarehouseResponse>("post", "/addwarehouse", payload),
+
+  updateWarehouse: (payload: FshipWarehousePayload) =>
+    deliveryRequest<FshipWarehouseResponse>("post", "/updatewarehouse", payload),
+
+  rateCalculator: (payload: FshipRateCalculatorPayload) =>
+    deliveryRequest<FshipRateCalculatorResponse>("post", "/ratecalculator", payload),
+
+  createForwardOrder: (payload: FshipCreateForwardOrderPayload) =>
+    deliveryRequest<FshipCreateForwardOrderResponse>("post", "/createforwardorder", payload),
+
+  cancelOrder: (referenceId: string, reason?: string) =>
+    deliveryRequest<{ status: boolean; response?: string }>("post", "/cancelorder", { referenceId, waybill: referenceId, reason: reason || "" }),
+
+  registerPickup: (waybills: string[]) =>
+    deliveryRequest<{ status: boolean; response?: string; apipickuporderids?: Array<{ pickupOrderId: number | string; waybills: string[] }> }>(
+      "post",
+      "/registerpickup",
+      { waybills },
+    ),
+
+  trackingHistory: (waybill: string) =>
+    deliveryRequest<FshipTrackingResponse>("post", "/trackinghistory", { waybill }),
+
+  shipmentSummary: (waybill: string) =>
+    deliveryRequest<FshipTrackingResponse>("post", "/shipmentsummary", { waybill }),
+
+  readStoredWarehouses: <T = StoredFshipWarehouse>() =>
+    readJsonArray<T>(DELIVERY_WAREHOUSE_STORAGE_KEY),
+
+  writeStoredWarehouses: <T = StoredFshipWarehouse>(warehouses: T[]) =>
+    writeJsonArray(DELIVERY_WAREHOUSE_STORAGE_KEY, warehouses),
+
+  readStoredOrders: <T = StoredFshipOrder>() =>
+    readJsonArray<T>(DELIVERY_ORDERS_STORAGE_KEY),
+
+  writeStoredOrders: <T = StoredFshipOrder>(orders: T[]) =>
+    writeJsonArray(DELIVERY_ORDERS_STORAGE_KEY, orders),
 };

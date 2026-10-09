@@ -6,6 +6,7 @@ import {
   type CourierShippingRate,
 } from "./courierApi";
 import {
+  deliveryApi,
   fshipApi,
   isFshipApiConfigured,
   isFshipServiceProvider,
@@ -267,12 +268,13 @@ function makeFallbackB2cRates(params: AvailableCouriersParams, shared: SharedCou
   const defaults: SharedCourier[] = [
     { id: "delhivery:b2c-surface", name: "Delhivery B2C Surface", serviceProvider: "delhivery", serviceProviderDisplayName: "Delhivery" },
     { id: "fship:surface", name: "FShip Surface", serviceProvider: "fship", serviceProviderDisplayName: "FShip" },
+    { id: "logixmitra:surface", name: "Delivery Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "Delivery" },
   ];
   const options = (shared.length > 0 ? shared : defaults).map((item, index) => ({
     courierId: item.id,
-    name: isFshipServiceProvider(item.serviceProvider) ? "FShip" : item.name,
+    name: item.name,
     serviceProvider: item.serviceProvider,
-    displayName: isFshipServiceProvider(item.serviceProvider) ? "FShip" : item.serviceProviderDisplayName,
+    displayName: item.serviceProviderDisplayName,
     freightPerSlab: Math.max(42, 54 - index * 2),
     rtoPerSlab: Math.max(36, 48 - index * 2),
   }));
@@ -320,14 +322,15 @@ function makeFallbackB2bRates(params: B2bAvailableCouriersParams, shared: Shared
   const defaults: SharedCourier[] = [
     { id: "delhivery:b2b-ltl", name: "Delhivery B2B LTL", serviceProvider: "delhivery", serviceProviderDisplayName: "Delhivery" },
     { id: "fship:b2b-surface", name: "FShip B2B Surface", serviceProvider: "fship", serviceProviderDisplayName: "FShip" },
+    { id: "logixmitra:b2b-surface", name: "Delivery B2B Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "Delivery" },
   ];
   return (shared.length > 0 ? shared : defaults).map((option, index) => {
     const adjustedFreight = round(baseFreight * (1 + index * 0.04));
     return {
       courierId: option.id,
-      name: isFshipServiceProvider(option.serviceProvider) ? "FShip" : option.name,
+      name: option.name,
       serviceProvider: option.serviceProvider,
-      serviceProviderDisplayName: isFshipServiceProvider(option.serviceProvider) ? "FShip" : option.serviceProviderDisplayName,
+      serviceProviderDisplayName: option.serviceProviderDisplayName,
       logo: null,
       zone: {
         originCode: params.origin,
@@ -521,10 +524,14 @@ async function getCourierApiB2bRates(params: B2bAvailableCouriersParams): Promis
   });
 }
 
-async function enrichFshipRates(
+type ShippingProviderClient = Pick<typeof fshipApi, "getCouriers" | "rateCalculator">;
+
+async function enrichProviderRates(
   rates: FshipShipmentRate[],
+  providerApi: ShippingProviderClient,
+  idPrefix: "fship" | "logixmitra",
 ): Promise<Array<FshipShipmentRate & { _courierId: string }>> {
-  const couriers = await fshipApi.getCouriers().catch(() => []);
+  const couriers = await providerApi.getCouriers().catch(() => []);
   return rates.map((rate, index) => {
     const name = String(rate.courier_name || `Shipping Partner ${index + 1}`).trim();
     const match = couriers.find((courier) => {
@@ -533,15 +540,20 @@ async function enrichFshipRates(
         courierName.includes(name.toLowerCase()) ||
         name.toLowerCase().includes(courierName);
     });
-    return { ...rate, _courierId: String(match?.courierId ?? `logixmitra:${serviceKey(name) || index + 1}`) };
+    return { ...rate, _courierId: `${idPrefix}:${String(match?.courierId ?? (serviceKey(name) || index + 1))}` };
   });
 }
 
-async function getFshipRates(params: AvailableCouriersParams): Promise<AvailableCourier[]> {
+async function getProviderRates(
+  params: AvailableCouriersParams,
+  providerApi: ShippingProviderClient,
+  provider: "fship" | "logixmitra",
+  displayName: "FShip" | "Delivery",
+): Promise<AvailableCourier[]> {
   const actualKg = kgFromGrams(params.weight);
   const volKg = volumetricKg(params.length, params.breadth, params.height);
   const chargeableKg = b2cChargeableKg(params.weight, params.length, params.breadth, params.height);
-  const response = await fshipApi.rateCalculator({
+  const response = await providerApi.rateCalculator({
     source_Pincode: params.origin,
     destination_Pincode: params.destination,
     payment_Mode: params.paymentType === "cod" ? "COD" : "P",
@@ -554,7 +566,7 @@ async function getFshipRates(params: AvailableCouriersParams): Promise<Available
     volumetric_Weight: volKg,
   });
 
-  const rates = await enrichFshipRates(response.shipment_rates ?? []);
+  const rates = await enrichProviderRates(response.shipment_rates ?? [], providerApi, provider);
   const totals = rates.map((r) =>
     toNumber(r.shipping_charge) + toNumber(r.cod_charge) + toNumber(r.rto_charge),
   );
@@ -568,12 +580,12 @@ async function getFshipRates(params: AvailableCouriersParams): Promise<Available
     const mode = String(rate.service_mode || "surface").toLowerCase().includes("air") ? "air" : "surface";
     return {
       courierId: rate._courierId,
-      name: "Delivery",
-      serviceProvider: "fship",
-      serviceProviderDisplayName: "FShip",
+      name: String(rate.courier_name || displayName),
+      serviceProvider: provider,
+      serviceProviderDisplayName: displayName,
       logo: null,
       mode,
-      zone: { code: "FS", name: "Live Courier" },
+      zone: { code: provider === "fship" ? "FS" : "DL", name: `${displayName} Live Courier` },
       chargeableWeight: Math.ceil(chargeableKg * 1000),
       minWeight: 500,
       rate: {
@@ -587,6 +599,14 @@ async function getFshipRates(params: AvailableCouriersParams): Promise<Available
       tag: total === cheapest ? "economy" : undefined,
     };
   });
+}
+
+async function getConnectedProviderRates(params: AvailableCouriersParams): Promise<AvailableCourier[]> {
+  const results = await Promise.allSettled([
+    getProviderRates(params, fshipApi, "fship", "FShip"),
+    getProviderRates(params, deliveryApi, "logixmitra", "Delivery"),
+  ]);
+  return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
 }
 
 async function getIndiaPostRates(params: AvailableCouriersParams): Promise<AvailableCourier[]> {
@@ -623,7 +643,22 @@ function mergeIndiaPostRates(couriers: AvailableCourier[], indiaPost: AvailableC
   return [...couriers, ...indiaPost.filter((item) => !seen.has(item.courierId))];
 }
 
-async function getFshipB2bRates(params: B2bAvailableCouriersParams): Promise<B2bAvailableCourier[]> {
+function uniqueRates<T extends { courierId: string; serviceProvider: string }>(rates: T[]): T[] {
+  const seen = new Set<string>();
+  return rates.filter((rate) => {
+    const key = `${rate.serviceProvider}:${rate.courierId}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function getProviderB2bRates(
+  params: B2bAvailableCouriersParams,
+  providerApi: ShippingProviderClient,
+  provider: "fship" | "logixmitra",
+  displayName: "FShip" | "Delivery",
+): Promise<B2bAvailableCourier[]> {
   const totalWeight = round(params.packages.reduce((sum, pkg) => sum + (pkg.weight || 0), 0), 3);
   const maxLength = Math.max(...params.packages.map((pkg) => pkg.length || 0), 0);
   const maxBreadth = Math.max(...params.packages.map((pkg) => pkg.breadth || 0), 0);
@@ -632,7 +667,7 @@ async function getFshipB2bRates(params: B2bAvailableCouriersParams): Promise<B2b
     (sum, pkg) => sum + volumetricKg(pkg.length, pkg.breadth, pkg.height),
     0,
   ), 3);
-  const response = await fshipApi.rateCalculator({
+  const response = await providerApi.rateCalculator({
     source_Pincode: params.origin,
     destination_Pincode: params.destination,
     payment_Mode: params.paymentType === "cod" ? "COD" : "P",
@@ -645,7 +680,7 @@ async function getFshipB2bRates(params: B2bAvailableCouriersParams): Promise<B2b
     volumetric_Weight: totalVolumetric,
   });
 
-  const rates = await enrichFshipRates(response.shipment_rates ?? []);
+  const rates = await enrichProviderRates(response.shipment_rates ?? [], providerApi, provider);
   const billableWeight = Math.max(totalWeight, totalVolumetric, 1);
   const packages = params.packages.map((pkg) => ({
     deadWeight: pkg.weight,
@@ -662,9 +697,9 @@ async function getFshipB2bRates(params: B2bAvailableCouriersParams): Promise<B2b
     const total = round(freight + cod);
     return {
       courierId: rate._courierId,
-      name: "Delivery",
-      serviceProvider: "fship",
-      serviceProviderDisplayName: "FShip",
+      name: String(rate.courier_name || displayName),
+      serviceProvider: provider,
+      serviceProviderDisplayName: displayName,
       logo: null,
       zone: {
         originCode: params.origin,
@@ -687,6 +722,14 @@ async function getFshipB2bRates(params: B2bAvailableCouriersParams): Promise<B2b
   });
 }
 
+async function getConnectedProviderB2bRates(params: B2bAvailableCouriersParams): Promise<B2bAvailableCourier[]> {
+  const results = await Promise.allSettled([
+    getProviderB2bRates(params, fshipApi, "fship", "FShip"),
+    getProviderB2bRates(params, deliveryApi, "logixmitra", "Delivery"),
+  ]);
+  return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+}
+
 export const ratesApi = {
   getDelhiveryRate: async (params: DelhiveryRateParams): Promise<DelhiveryRate> => {
     const { data } = await api.get<DelhiveryRate>("/rates/delhivery", {
@@ -705,60 +748,20 @@ export const ratesApi = {
   ): Promise<AvailableCourier[]> => {
     const sharedCouriers = await getSharedCouriers("b2c");
     const indiaPostRates = await getIndiaPostRates(params).catch(() => []);
-    if (shouldUseCourierApi()) {
-      try {
-        const couriers = await getCourierApiRates(params);
-        if (couriers.length > 0) {
-          const seen = new Set(couriers.map((item) => item.courierId));
-          return mergeIndiaPostRates([
-            ...couriers,
-            ...makeFallbackB2cRates(params, sharedCouriers).filter((item) => !seen.has(item.courierId)),
-          ], indiaPostRates);
-        }
-      } catch {
-        // Keep courier selection usable on static deploys even before the courier token is present.
-      }
-      return mergeIndiaPostRates(makeFallbackB2cRates(params, sharedCouriers), indiaPostRates);
-    }
-
-    if (shouldUseFshipApi()) {
-      const fallbackRates = makeFallbackB2cRates(params, sharedCouriers);
-      try {
-        if (isFshipApiConfigured()) {
-          const fshipRates = await getFshipRates(params);
-          if (fshipRates.length > 0) {
-            const seen = new Set(fshipRates.map((item) => item.courierId));
-            return mergeIndiaPostRates([
-              ...fshipRates,
-              ...fallbackRates.filter((item) => !seen.has(item.courierId)),
-            ], indiaPostRates);
-          }
-        }
-      } catch {
-        // Keep order creation screen usable while credentials or CORS are being fixed.
-      }
-      return mergeIndiaPostRates(fallbackRates, indiaPostRates);
-    }
-
-    try {
-      const { data } = await api.post<{ success: boolean; data: AvailableCourier[] }>(
-        "/rates/available",
-        params,
-      );
-      if (Array.isArray(data.data) && data.data.length > 0) {
-        const seen = new Set(data.data.map((item) => item.courierId));
-        const fshipRates = isFshipApiConfigured() ? await getFshipRates(params).catch(() => []) : [];
-        fshipRates.forEach((item) => seen.add(item.courierId));
-        return mergeIndiaPostRates([
-          ...data.data,
-          ...fshipRates,
-          ...makeFallbackB2cRates(params, sharedCouriers).filter((item) => !seen.has(item.courierId)),
-        ], indiaPostRates);
-      }
-      return mergeIndiaPostRates(makeFallbackB2cRates(params, sharedCouriers), indiaPostRates);
-    } catch {
-      return mergeIndiaPostRates(makeFallbackB2cRates(params, sharedCouriers), indiaPostRates);
-    }
+    const [courierRates, connectedRates, platformRates] = await Promise.all([
+      shouldUseCourierApi() ? getCourierApiRates(params).catch(() => []) : Promise.resolve([]),
+      shouldUseFshipApi() && isFshipApiConfigured() ? getConnectedProviderRates(params).catch(() => []) : Promise.resolve([]),
+      api.post<{ success: boolean; data: AvailableCourier[] }>("/rates/available", params)
+        .then(({ data }) => Array.isArray(data.data) ? data.data : [])
+        .catch(() => []),
+    ]);
+    const liveRates = uniqueRates([...courierRates, ...connectedRates, ...platformRates]);
+    const fallbackRates = makeFallbackB2cRates(params, sharedCouriers);
+    const seen = new Set(liveRates.map((item) => `${item.serviceProvider}:${item.courierId}`.toLowerCase()));
+    return mergeIndiaPostRates([
+      ...liveRates,
+      ...fallbackRates.filter((item) => !seen.has(`${item.serviceProvider}:${item.courierId}`.toLowerCase())),
+    ], indiaPostRates);
   },
 
   getRateCard: async (): Promise<RateCardResponse> => {
@@ -770,15 +773,7 @@ export const ratesApi = {
     params: B2bAvailableCouriersParams,
   ): Promise<B2bAvailableCourier[]> => {
     const sharedCouriers = await getSharedCouriers("b2b");
-    if (shouldUseCourierApi()) {
-      try {
-        const couriers = await getCourierApiB2bRates(params);
-        if (couriers.length > 0) return couriers;
-      } catch {
-        // Keep courier selection usable on static deploys even before the courier token is present.
-      }
-      return makeFallbackB2bRates(params, sharedCouriers);
-    }
+    const courierRates = shouldUseCourierApi() ? await getCourierApiB2bRates(params).catch(() => []) : [];
 
     // Admin pricing is the source of truth for the client panel. Fetch it
     // first even when live FShip rates are enabled; otherwise a failed FShip
@@ -790,8 +785,8 @@ export const ratesApi = {
         params,
       );
       if (Array.isArray(data.data) && data.data.length > 0) {
-        const fshipRates = isFshipApiConfigured() ? await getFshipB2bRates(params).catch(() => []) : [];
-        return applyFshipB2bTestPricing([...data.data, ...fshipRates]);
+        const fshipRates = isFshipApiConfigured() ? await getConnectedProviderB2bRates(params).catch(() => []) : [];
+        return applyFshipB2bTestPricing(uniqueRates([...courierRates, ...data.data, ...fshipRates]));
       }
     } catch {
       // Fall through to the explicitly marked fallback below if the API is unavailable.
@@ -802,13 +797,13 @@ export const ratesApi = {
     // live rates can be retried once the server key is corrected.
     if (shouldUseFshipApi() && isFshipApiConfigured()) {
       try {
-        const couriers = await getFshipB2bRates(params);
-        if (couriers.length > 0) return applyFshipB2bTestPricing(couriers);
+        const couriers = await getConnectedProviderB2bRates(params);
+        if (couriers.length > 0) return applyFshipB2bTestPricing(uniqueRates([...courierRates, ...couriers]));
       } catch {
-        return applyFshipB2bTestPricing(makeFallbackB2bRates(params, sharedCouriers));
+        return applyFshipB2bTestPricing(uniqueRates([...courierRates, ...makeFallbackB2bRates(params, sharedCouriers)]));
       }
-      return applyFshipB2bTestPricing(makeFallbackB2bRates(params, sharedCouriers));
+      return applyFshipB2bTestPricing(uniqueRates([...courierRates, ...makeFallbackB2bRates(params, sharedCouriers)]));
     }
-    return applyFshipB2bTestPricing(makeFallbackB2bRates(params, sharedCouriers));
+    return applyFshipB2bTestPricing(uniqueRates([...courierRates, ...makeFallbackB2bRates(params, sharedCouriers)]));
   },
 };

@@ -86,27 +86,24 @@ function defaultCredentials(): ProviderCredentialsResponse {
 
 function fshipCredentials(): ProviderCredentialsResponse {
   const fields: CredentialFieldDef[] = [
-    { key: "baseUrl", label: "Base URL", type: "text", required: true },
-    { key: "email", label: "API Account Email", type: "text", required: true },
-    { key: "password", label: "API Account Password", type: "password", required: true },
+    { key: "baseUrl", label: "FShip API Base URL", type: "text", required: true },
+    { key: "clientKey", label: "FShip Client Key", type: "password", required: true },
   ];
   return {
     b2c: {
       fields,
       description: "Used for live FShip courier rates, shipment creation, pickup, cancellation, labels, and tracking.",
       values: {
-        baseUrl: "https://api.logixmitra.com/api",
-        email: "",
-        password: "",
+        baseUrl: "https://capi.fship.in",
+        clientKey: "",
       },
     },
     b2b: {
       fields,
       description: "B2B uses the same FShip API credentials by default.",
       values: {
-        baseUrl: "https://api.logixmitra.com/api",
-        email: "",
-        password: "",
+        baseUrl: "https://capi.fship.in",
+        clientKey: "",
       },
       sameAsB2c: true,
     },
@@ -115,14 +112,14 @@ function fshipCredentials(): ProviderCredentialsResponse {
 
 function logixMitraCredentials(): ProviderCredentialsResponse {
   const fields: CredentialFieldDef[] = [
-    { key: "baseUrl", label: "LogixMitra API Base URL", type: "text", required: true },
-    { key: "email", label: "LogixMitra API Account Email", type: "text", required: true },
-    { key: "password", label: "LogixMitra API Account Password", type: "password", required: true },
+    { key: "baseUrl", label: "Delivery API Base URL", type: "text", required: true },
+    { key: "email", label: "Delivery API Account Email", type: "text", required: true },
+    { key: "password", label: "Delivery API Account Password", type: "password", required: true },
   ];
-  const values = { baseUrl: "", email: "", password: "" };
+  const values = { baseUrl: "https://api.goshipsy.in/api/providers/delivery", email: "", password: "" };
   return {
-    b2c: { fields, description: "Separate Delivery (LogixMitra) integration. Configure only with LogixMitra-issued API credentials.", values },
-    b2b: { fields, description: "Separate Delivery (LogixMitra) B2B integration. It is not linked to FShip credentials.", values, sameAsB2c: false },
+    b2c: { fields, description: "Separate live Delivery connection for rates, order booking, cancellation and tracking.", values },
+    b2b: { fields, description: "Delivery B2B uses the same server-managed connection by default.", values, sameAsB2c: true },
   };
 }
 
@@ -248,12 +245,12 @@ function defaultSeedProviders(): ProviderListItem[] {
       displayName: "Delivery",
       logoUrl: "",
       totalCouriers: 2,
-      enabledCouriers: 0,
+      enabledCouriers: 2,
       serviceProviderDisplayName: "Delivery",
       isEnabled: true,
-      b2c: { configured: false },
-      b2b: { configured: false, sameAsB2c: false },
-      status: "inactive",
+      b2c: { configured: true },
+      b2b: { configured: true, sameAsB2c: true },
+      status: "active",
       updatedAt,
     },
   ];
@@ -263,9 +260,36 @@ function mergeSeedProviders(providers: ProviderListItem[]): ProviderListItem[] {
   const blocked = new Set(["teampafex", "shadowfax"]);
   const filtered = providers
     .filter((provider) => !blocked.has(provider.serviceProvider.toLowerCase()))
-    .map((provider) => provider.serviceProvider.toLowerCase() === "logixmitra" && provider.displayName === "FShip"
-      ? { ...provider, id: "sp-fship", serviceProvider: "fship", displayName: "FShip", serviceProviderDisplayName: "FShip" }
-      : provider);
+    .map((provider) => {
+      const slug = provider.serviceProvider.toLowerCase();
+      if (slug === "logixmitra") {
+        return {
+          ...provider,
+          id: "sp-logixmitra",
+          displayName: "Delivery",
+          serviceProviderDisplayName: "Delivery",
+          totalCouriers: Math.max(2, provider.totalCouriers),
+          enabledCouriers: Math.max(2, provider.enabledCouriers),
+          isEnabled: true,
+          b2c: { configured: true },
+          b2b: { configured: true, sameAsB2c: true },
+          status: "active" as const,
+        };
+      }
+      if (slug === "fship") {
+        return {
+          ...provider,
+          id: "sp-fship",
+          displayName: "FShip",
+          serviceProviderDisplayName: "FShip",
+          isEnabled: true,
+          b2c: { configured: true },
+          b2b: { configured: true, sameAsB2c: true },
+          status: "active" as const,
+        };
+      }
+      return provider;
+    });
   const seen = new Set(filtered.map((provider) => provider.serviceProvider.toLowerCase()));
   const missingSeeds = defaultSeedProviders().filter((provider) => !seen.has(provider.serviceProvider));
   return [...missingSeeds, ...filtered];
@@ -305,10 +329,20 @@ function readStaticCredentials(providerId: string): ProviderCredentialsResponse 
           ? logixMitraCredentials()
         : defaultCredentials();
   const creds = all[providerId] ?? fallback;
+  const mergeValues = (base: Record<string, string>, stored?: Record<string, string>) => ({
+    ...base,
+    ...Object.fromEntries(Object.entries(stored ?? {}).filter(([, value]) => String(value || "").trim() !== "")),
+  });
   const merged: ProviderCredentialsResponse = {
-    b2c: { ...fallback.b2c, ...creds.b2c, values: { ...fallback.b2c.values, ...creds.b2c?.values } },
-    b2b: { ...fallback.b2b, ...creds.b2b, values: { ...fallback.b2b.values, ...creds.b2b?.values } },
+    b2c: { ...fallback.b2c, ...creds.b2c, fields: fallback.b2c.fields, description: fallback.b2c.description, values: mergeValues(fallback.b2c.values, creds.b2c?.values) },
+    b2b: { ...fallback.b2b, ...creds.b2b, fields: fallback.b2b.fields, description: fallback.b2b.description, values: mergeValues(fallback.b2b.values, creds.b2b?.values) },
   };
+  if (providerId === "sp-fship") {
+    merged.b2c.values = { baseUrl: "https://capi.fship.in", clientKey: merged.b2c.values.clientKey || "" };
+    merged.b2b.values = { baseUrl: "https://capi.fship.in", clientKey: merged.b2b.values.clientKey || "" };
+    merged.b2b.sameAsB2c = true;
+  }
+  if (providerId === "sp-logixmitra") merged.b2b.sameAsB2c = true;
   all[providerId] = merged;
   writeJson(STATIC_SERVICE_PROVIDER_CREDS_KEY, all);
   return merged;

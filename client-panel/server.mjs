@@ -216,17 +216,29 @@ function requireEnv(name) {
   return value;
 }
 
-const fshipApiBaseUrl = String(process.env.FSHIP_API_URL || "https://api.logixmitra.com/api").replace(/\/+$/, "");
-let fshipSession = { token: "", userId: "", expiresAt: 0 };
+function requireAnyEnv(...names) {
+  for (const name of names) {
+    const value = String(process.env[name] || "").trim().replace(/^("|')(.*)\1$/, "$2").trim();
+    if (value) return value;
+  }
+  const error = new Error(`${names[0]} is not configured on the Shipsy client service`);
+  error.status = 503;
+  throw error;
+}
 
-async function getFshipSession(force = false) {
-  if (!force && fshipSession.token && fshipSession.expiresAt > Date.now()) return fshipSession;
-  const response = await fetch(`${fshipApiBaseUrl}/auth/login`, {
+const legacyShippingApiUrl = String(process.env.FSHIP_API_URL || "").trim();
+const fshipApiBaseUrl = String(legacyShippingApiUrl.includes("logixmitra") ? "https://capi.fship.in" : (legacyShippingApiUrl || "https://capi.fship.in")).replace(/\/+$/, "");
+const deliveryApiBaseUrl = String(process.env.DELIVERY_API_URL || process.env.LOGIXMITRA_API_URL || (legacyShippingApiUrl.includes("logixmitra") ? legacyShippingApiUrl : "") || "https://api.logixmitra.com/api").replace(/\/+$/, "");
+let deliverySession = { token: "", userId: "", expiresAt: 0 };
+
+async function getDeliverySession(force = false) {
+  if (!force && deliverySession.token && deliverySession.expiresAt > Date.now()) return deliverySession;
+  const response = await fetch(`${deliveryApiBaseUrl}/auth/login`, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify({
-      email: requireEnv("FSHIP_API_EMAIL"),
-      password: requireEnv("FSHIP_API_PASSWORD"),
+      email: requireAnyEnv("DELIVERY_API_EMAIL", "FSHIP_API_EMAIL"),
+      password: requireAnyEnv("DELIVERY_API_PASSWORD", "FSHIP_API_PASSWORD"),
     }),
   });
   const { body } = await readUpstream(response);
@@ -234,18 +246,18 @@ async function getFshipSession(force = false) {
   if (!response.ok || !token) {
     throw Object.assign(new Error(upstreamErrorMessage(body, "Shipping provider login failed")), { status: response.status || 502 });
   }
-  fshipSession = {
+  deliverySession = {
     token,
     userId: String(body?.data?.user?.id || "").trim(),
     // The documented lifetime is seven days; refresh a little early.
     expiresAt: Date.now() + (6 * 24 * 60 * 60 * 1000),
   };
-  return fshipSession;
+  return deliverySession;
 }
 
-async function fshipFetch(pathname, options = {}, authenticated = true) {
-  let session = authenticated ? await getFshipSession() : null;
-  const call = () => fetch(`${fshipApiBaseUrl}/${String(pathname).replace(/^\/+/, "")}`, {
+async function deliveryFetch(pathname, options = {}, authenticated = true) {
+  let session = authenticated ? await getDeliverySession() : null;
+  const call = () => fetch(`${deliveryApiBaseUrl}/${String(pathname).replace(/^\/+/, "")}`, {
     ...options,
     headers: {
       Accept: "application/json",
@@ -256,10 +268,23 @@ async function fshipFetch(pathname, options = {}, authenticated = true) {
   });
   let response = await call();
   if (authenticated && response.status === 401) {
-    session = await getFshipSession(true);
+    session = await getDeliverySession(true);
     response = await call();
   }
   return response;
+}
+
+async function fshipFetch(pathname, options = {}) {
+  const clientKey = requireEnv("FSHIP_CLIENT_KEY");
+  return fetch(`${fshipApiBaseUrl}/api/${String(pathname).replace(/^\/+/, "")}`, {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      signature: clientKey,
+      ...(options.headers || {}),
+    },
+  });
 }
 
 async function readUpstream(response) {
@@ -355,12 +380,59 @@ app.all("/api/providers/teampafex/*path", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.get(["/api/providers/fship/getallcourier", "/api/providers/logixmitra/getallcourier"], (_req, res) => {
-  // The new rate endpoint already returns the available courier names.
+async function readFshipCouriers() {
+  let response = await fshipFetch("getallcourier", { method: "GET" });
+  if (response.status === 404 || response.status === 405) response = await fshipFetch("getallcourier", { method: "POST" });
+  return response;
+}
+
+app.get("/api/providers/fship/status", async (_req, res, next) => {
+  try {
+    const response = await readFshipCouriers();
+    const { body } = await readUpstream(response);
+    const couriers = Array.isArray(body) ? body : [];
+    res.status(response.status).json({ connected: response.ok, provider: "FShip", courierCount: couriers.length });
+  } catch (error) { next(error); }
+});
+
+app.get("/api/providers/fship/getallcourier", async (_req, res, next) => {
+  try {
+    const response = await readFshipCouriers();
+    const { body } = await readUpstream(response);
+    res.status(response.status).json(body);
+  } catch (error) { next(error); }
+});
+
+for (const endpoint of ["ratecalculator", "addwarehouse", "updatewarehouse", "createforwardorder", "cancelorder", "trackinghistory", "shipmentsummary", "registerpickup", "shippinglabel"]) {
+  app.post(`/api/providers/fship/${endpoint}`, async (req, res, next) => {
+    try {
+      const response = await fshipFetch(endpoint, { method: "POST", body: JSON.stringify(req.body || {}) });
+      const { body, contentType } = await readUpstream(response);
+      res.status(response.status).type(contentType || "application/json").send(body);
+    } catch (error) { next(error); }
+  });
+}
+
+const deliveryPaths = (suffix) => [
+  `/api/providers/delivery/${suffix}`,
+  `/api/providers/logixmitra/${suffix}`,
+];
+
+app.get(deliveryPaths("status"), async (_req, res, next) => {
+  try {
+    const session = await getDeliverySession();
+    const response = await deliveryFetch("auth/me", { method: "GET" });
+    const { body } = await readUpstream(response);
+    res.status(response.status).json({ connected: response.ok && body?.success !== false, provider: "Delivery", accountId: session.userId || undefined });
+  } catch (error) { next(error); }
+});
+
+app.get(deliveryPaths("getallcourier"), (_req, res) => {
+  // Delivery returns the available courier names with each live quote.
   res.json([]);
 });
 
-app.post(["/api/providers/fship/ratecalculator", "/api/providers/logixmitra/ratecalculator"], async (req, res, next) => {
+app.post(deliveryPaths("ratecalculator"), async (req, res, next) => {
   try {
     const payload = {
       shipmentType: "FORWARD",
@@ -377,7 +449,7 @@ app.post(["/api/providers/fship/ratecalculator", "/api/providers/logixmitra/rate
       },
       serviceType: "domestic",
     };
-    const response = await fshipFetch("integrations/ratecalculate", { method: "POST", body: JSON.stringify(payload) }, false);
+    const response = await deliveryFetch("integrations/ratecalculate", { method: "POST", body: JSON.stringify(payload) }, false);
     const { body } = await readUpstream(response);
     if (!response.ok || body?.success === false) {
       return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Live rate calculation failed") });
@@ -396,9 +468,9 @@ app.post(["/api/providers/fship/ratecalculator", "/api/providers/logixmitra/rate
   } catch (error) { next(error); }
 });
 
-app.post(["/api/providers/fship/addwarehouse", "/api/providers/logixmitra/addwarehouse"], async (req, res, next) => {
+app.post(deliveryPaths("addwarehouse"), async (req, res, next) => {
   try {
-    const session = await getFshipSession();
+    const session = await getDeliverySession();
     const payload = {
       name: String(req.body?.warehouseName || "Pickup Location"),
       address: [req.body?.addressLine1, req.body?.addressLine2].filter(Boolean).join(", "),
@@ -411,7 +483,7 @@ app.post(["/api/providers/fship/addwarehouse", "/api/providers/logixmitra/addwar
       isDefault: false,
       isActive: true,
     };
-    const response = await fshipFetch("auth/createWarehouse", { method: "POST", body: JSON.stringify(payload) });
+    const response = await deliveryFetch("auth/createWarehouse", { method: "POST", body: JSON.stringify(payload) });
     const { body } = await readUpstream(response);
     if (!response.ok || body?.success === false) {
       return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Pickup location registration failed") });
@@ -420,7 +492,7 @@ app.post(["/api/providers/fship/addwarehouse", "/api/providers/logixmitra/addwar
   } catch (error) { next(error); }
 });
 
-app.post(["/api/providers/fship/updatewarehouse", "/api/providers/logixmitra/updatewarehouse"], async (req, res, next) => {
+app.post(deliveryPaths("updatewarehouse"), async (req, res, next) => {
   try {
     const warehouseId = String(req.body?.warehouseId || "").trim();
     if (!warehouseId) return res.status(400).json({ status: false, response: "Pickup location id is required" });
@@ -434,7 +506,7 @@ app.post(["/api/providers/fship/updatewarehouse", "/api/providers/logixmitra/upd
       phone: String(req.body?.phoneNumber || "").replace(/\D/g, ""),
       isActive: true,
     };
-    const response = await fshipFetch(`auth/updateWarehouse/${encodeURIComponent(warehouseId)}`, { method: "PUT", body: JSON.stringify(payload) });
+    const response = await deliveryFetch(`auth/updateWarehouse/${encodeURIComponent(warehouseId)}`, { method: "PUT", body: JSON.stringify(payload) });
     const { body } = await readUpstream(response);
     if (!response.ok || body?.success === false) {
       return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Pickup location update failed") });
@@ -443,7 +515,7 @@ app.post(["/api/providers/fship/updatewarehouse", "/api/providers/logixmitra/upd
   } catch (error) { next(error); }
 });
 
-app.post(["/api/providers/fship/createforwardorder", "/api/providers/logixmitra/createforwardorder"], async (req, res, next) => {
+app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
   try {
     const products = Array.isArray(req.body?.products) ? req.body.products : [];
     const subtotal = products.reduce((sum, product) => sum + (Number(product?.unitPrice || 0) * Number(product?.quantity || 0)), 0);
@@ -485,7 +557,7 @@ app.post(["/api/providers/fship/createforwardorder", "/api/providers/logixmitra/
         height: Number(req.body?.shipment_Height || 0),
       })),
     };
-    const response = await fshipFetch("auth/manualcreateOrder", { method: "POST", body: JSON.stringify(payload) });
+    const response = await deliveryFetch("auth/manualcreateOrder", { method: "POST", body: JSON.stringify(payload) });
     const { body } = await readUpstream(response);
     if (!response.ok || body?.success === false) {
       return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Order creation failed") });
@@ -501,9 +573,9 @@ app.post(["/api/providers/fship/createforwardorder", "/api/providers/logixmitra/
   } catch (error) { next(error); }
 });
 
-app.post(["/api/providers/fship/cancelorder", "/api/providers/logixmitra/cancelorder"], async (req, res, next) => {
+app.post(deliveryPaths("cancelorder"), async (req, res, next) => {
   try {
-    const response = await fshipFetch("orders/cancelshipment", {
+    const response = await deliveryFetch("orders/cancelshipment", {
       method: "PUT",
       body: JSON.stringify({ referenceId: String(req.body?.referenceId || req.body?.waybill || "") }),
     });
@@ -512,10 +584,10 @@ app.post(["/api/providers/fship/cancelorder", "/api/providers/logixmitra/cancelo
   } catch (error) { next(error); }
 });
 
-app.post(["/api/providers/fship/trackinghistory", "/api/providers/fship/shipmentsummary", "/api/providers/logixmitra/trackinghistory", "/api/providers/logixmitra/shipmentsummary"], async (req, res, next) => {
+app.post([...deliveryPaths("trackinghistory"), ...deliveryPaths("shipmentsummary")], async (req, res, next) => {
   try {
     const awb = String(req.body?.waybill || "").trim();
-    const response = await fshipFetch(`tracking/track/${encodeURIComponent(awb)}`, { method: "GET" }, false);
+    const response = await deliveryFetch(`tracking/track/${encodeURIComponent(awb)}`, { method: "GET" }, false);
     const { body } = await readUpstream(response);
     if (!response.ok || body?.success === false) {
       return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Tracking lookup failed") });
@@ -539,7 +611,7 @@ app.post(["/api/providers/fship/trackinghistory", "/api/providers/fship/shipment
   } catch (error) { next(error); }
 });
 
-app.post(["/api/providers/fship/registerpickup", "/api/providers/logixmitra/registerpickup"], (_req, res) => {
+app.post(deliveryPaths("registerpickup"), (_req, res) => {
   res.status(501).json({ status: false, response: "Pickup booking requires an order booking payload from the shipping provider." });
 });
 

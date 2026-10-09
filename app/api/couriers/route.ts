@@ -11,8 +11,10 @@ function courier(id: string, name: string, serviceProvider: string, displayName:
 const seeds = [
   courier("delhivery:b2c-surface", "Delhivery B2C Surface", "delhivery", "Delhivery", "b2c"),
   courier("delhivery:b2b-ltl", "Delhivery B2B LTL", "delhivery", "Delhivery", "b2b"),
-  courier("logixmitra:surface", "FShip Surface", "logixmitra", "FShip", "b2c"),
-  courier("logixmitra:b2b-surface", "FShip B2B Surface", "logixmitra", "FShip", "b2b"),
+  courier("fship:surface", "FShip Surface", "fship", "FShip", "b2c"),
+  courier("fship:b2b-surface", "FShip B2B Surface", "fship", "FShip", "b2b"),
+  courier("logixmitra:surface", "Delivery Surface", "logixmitra", "Delivery", "b2c"),
+  courier("logixmitra:b2b-surface", "Delivery B2B Surface", "logixmitra", "Delivery", "b2b"),
 ];
 const courierStore = new Map(seeds.map((item) => [item.id, item]));
 

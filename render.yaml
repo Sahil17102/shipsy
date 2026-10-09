@@ -27,10 +27,14 @@ services:
       - key: TEAMPAFEX_PASSWORD
         sync: false
       - key: FSHIP_API_URL
-        value: https://api.logixmitra.com/api
-      - key: FSHIP_API_EMAIL
+        value: https://capi.fship.in
+      - key: FSHIP_CLIENT_KEY
         sync: false
-      - key: FSHIP_API_PASSWORD
+      - key: DELIVERY_API_URL
+        value: https://api.logixmitra.com/api
+      - key: DELIVERY_API_EMAIL
+        sync: false
+      - key: DELIVERY_API_PASSWORD
         sync: false
       - key: DELHIVERY_TOKEN
         sync: false
