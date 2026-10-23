@@ -1,0 +1,67 @@
+{
+  "info": {
+    "name": "Shipsy DTDC Proxy",
+    "description": "Server-side DTDC staging proxy. Configure DTDC credentials in the server environment; this collection contains no carrier secrets.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "List Supported Operations",
+      "request": { "method": "GET", "url": "{{base_url}}/api/dtdc" }
+    },
+    {
+      "name": "Pincode Serviceability",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{dtdc_proxy_token}}" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"pincodeServiceability\",\n  \"payload\": { \"orgPincode\": \"110046\", \"desPincode\": \"636010\" }\n}" },
+        "url": "{{base_url}}/api/dtdc"
+      }
+    },
+    {
+      "name": "Create Shipment",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{dtdc_proxy_token}}" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"createShipment\",\n  \"payload\": {\n    \"consignments\": [{\n      \"load_type\": \"NON-DOCUMENT\",\n      \"consignment_type\": \"Forward\",\n      \"dimension_unit\": \"cm\",\n      \"length\": \"10\", \"width\": \"10\", \"height\": \"10\",\n      \"weight_unit\": \"kg\", \"weight\": \"1\",\n      \"declared_value\": \"100\", \"num_pieces\": \"1\",\n      \"origin_details\": {}, \"destination_details\": {},\n      \"customer_reference_number\": \"ORDER-123\"\n    }]\n  }\n}" },
+        "url": "{{base_url}}/api/dtdc"
+      }
+    },
+    {
+      "name": "Generate Label",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{dtdc_proxy_token}}" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"generateLabel\",\n  \"params\": { \"reference_number\": \"DTDC_REFERENCE\", \"label_code\": \"SHIP_LABEL_4X6\", \"label_format\": \"pdf\" }\n}" },
+        "url": "{{base_url}}/api/dtdc"
+      }
+    },
+    {
+      "name": "Cancel Shipment",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{dtdc_proxy_token}}" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"cancelShipment\",\n  \"params\": { \"AWBNo\": [\"DTDC_AWB\"] }\n}" },
+        "url": "{{base_url}}/api/dtdc"
+      }
+    },
+    {
+      "name": "Track Shipment",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{dtdc_proxy_token}}" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"trackShipment\",\n  \"params\": { \"trkType\": \"cnno\", \"strcnno\": \"DTDC_AWB\", \"addtnlDtl\": \"Y\" }\n}" },
+        "url": "{{base_url}}/api/dtdc"
+      }
+    },
+    {
+      "name": "Get ePOD",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{dtdc_proxy_token}}" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"operation\": \"generateEpod\",\n  \"params\": { \"reference_number_list\": [\"DTDC_REFERENCE\"] }\n}" },
+        "url": "{{base_url}}/api/dtdc"
+      }
+    }
+  ]
+}

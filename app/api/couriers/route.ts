@@ -15,6 +15,7 @@ const seeds = [
   courier("fship:b2b-surface", "FShip B2B Surface", "fship", "FShip", "b2b"),
   courier("logixmitra:surface", "Delivery Surface", "logixmitra", "Delivery", "b2c"),
   courier("logixmitra:b2b-surface", "Delivery B2B Surface", "logixmitra", "Delivery", "b2b"),
+  courier("dtdc:priority", "DTDC Priority", "dtdc", "DTDC", "b2c"),
 ];
 const courierStore = new Map(seeds.map((item) => [item.id, item]));
 
