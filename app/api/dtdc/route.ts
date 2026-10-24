@@ -5,7 +5,7 @@ export async function GET(): Promise<Response> {
   return Response.json({
     ok: true,
     service: "dtdc",
-    environment: readEnv("DTDC_ENV") || "staging",
+    environment: readEnv("DTDC_ENV") || "production",
     operations: listDtdcOperations(),
     usage: {
       method: "POST",
@@ -32,7 +32,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     const apiKey = readEnv("DTDC_API_KEY");
     const customerCode = readEnv("DTDC_CUSTOMER_CODE");
-    if (!apiKey || !customerCode) {
+    if (body.operation !== "pincodeServiceability" && (!apiKey || !customerCode)) {
       return Response.json({
         error: "DTDC_API_KEY and DTDC_CUSTOMER_CODE must be configured on the server",
       }, { status: 500 });
@@ -42,7 +42,7 @@ export async function POST(request: Request): Promise<Response> {
       apiKey,
       customerCode,
       serviceTypeId: readEnv("DTDC_SERVICE_TYPE_ID") || "PRIORITY",
-      environment: readEnv("DTDC_ENV").toLowerCase() === "production" ? "production" : "staging",
+      environment: readEnv("DTDC_ENV").toLowerCase() === "staging" ? "staging" : "production",
       trackingAccessToken: readEnv("DTDC_TRACKING_ACCESS_TOKEN"),
       trackingUsername: readEnv("DTDC_TRACKING_USERNAME"),
       trackingPassword: readEnv("DTDC_TRACKING_PASSWORD"),

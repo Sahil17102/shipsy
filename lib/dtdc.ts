@@ -72,7 +72,7 @@ export async function callDtdc(
   request: DtdcProxyRequest,
   config: DtdcConfig,
 ): Promise<DtdcProxyResponse> {
-  const environment = config.environment ?? "staging";
+  const environment = config.environment ?? "production";
   const urls = URLS[environment];
   const params = request.params ?? {};
   let upstreamUrl: string;

@@ -1,6 +1,6 @@
-# DTDC integration
+# DTDC production integration
 
-The DTDC sandbox proxy is server-side, so API keys and tracking credentials stay out of browser code:
+The DTDC production proxy is server-side, so API keys and tracking credentials stay out of browser code. The same route is available from the deployed VPS API:
 
 ```text
 GET  /api/dtdc
@@ -13,14 +13,14 @@ Configure these variables in the app runtime. Do not commit real values:
 
 ```text
 DTDC_PROXY_TOKEN=your_internal_proxy_token
-DTDC_API_KEY=your_test_api_key
+DTDC_API_KEY=your_production_api_key
 DTDC_CUSTOMER_CODE=your_customer_code
 DTDC_SERVICE_TYPE_ID=PRIORITY
-DTDC_ENV=staging
-DTDC_TRACKING_ACCESS_TOKEN=your_test_tracking_token
+DTDC_ENV=production
+DTDC_TRACKING_ACCESS_TOKEN=your_production_tracking_token
 ```
 
-`DTDC_ENV` uses `staging` unless set to `production`. To have the server request a tracking token instead, configure `DTDC_TRACKING_USERNAME` and `DTDC_TRACKING_PASSWORD` and leave `DTDC_TRACKING_ACCESS_TOKEN` empty. `DTDC_PINCODE_TOKEN` is optional because the supplied Postman request does not send a bearer token.
+`DTDC_ENV` uses `production` unless explicitly set to `staging`. To have the server request a tracking token instead, configure `DTDC_TRACKING_USERNAME` and `DTDC_TRACKING_PASSWORD` and leave `DTDC_TRACKING_ACCESS_TOKEN` empty. `DTDC_PINCODE_TOKEN` is optional: the production pincode endpoint was verified successfully without carrier authentication on 24 October 2026.
 
 Booking requests use the configured customer code and service type for every consignment, overriding values in the request body. The API key and customer code are required for the proxy to start requests.
 
@@ -116,4 +116,4 @@ Use `trkType: "reference"` to track by customer reference number.
 
 Import `postman/dtdc.postman_collection.json` and `postman/dtdc.postman_environment.json`. Set `base_url` to the running app and configure secrets in the server environment.
 
-The staging endpoint hostnames follow the DTDC-provided Postman collection and endpoint PDFs. The pincode API's reference PDF describes bearer authentication, while the supplied collection omits that header; the proxy supports an optional `DTDC_PINCODE_TOKEN` for accounts that require it.
+The endpoint hostnames follow the DTDC-provided Postman collection and endpoint PDFs. Production pincode serviceability uses `https://smarttrack-ctbsplus.dtdc.com/ratecalapi/PincodeApiCall`; the similar dotted hostname belongs only to the staging mapping. The proxy still supports an optional `DTDC_PINCODE_TOKEN` for accounts that require it.

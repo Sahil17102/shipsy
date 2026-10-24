@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Shipsy DTDC Proxy",
-    "description": "Server-side DTDC staging proxy. Configure DTDC credentials in the server environment; this collection contains no carrier secrets.",
+    "description": "Server-side DTDC production proxy. Configure DTDC credentials in the server environment; this collection contains no carrier secrets.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
