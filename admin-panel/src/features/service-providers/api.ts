@@ -194,9 +194,38 @@ function indiaPostCredentials(): ProviderCredentialsResponse {
   };
 }
 
+function dtdcCredentials(): ProviderCredentialsResponse {
+  const fields: CredentialFieldDef[] = [
+    { key: "environment", label: "Environment", type: "text", required: true },
+    { key: "apiKey", label: "Production API Key", type: "password", required: true },
+    { key: "customerCode", label: "Customer Code", type: "text", required: true },
+    { key: "serviceTypeId", label: "Service Type ID", type: "text", required: true },
+    { key: "trackingAccessToken", label: "Tracking Access Token", type: "password", required: false },
+  ];
+  const values = { environment: "production", apiKey: "", customerCode: "", serviceTypeId: "PRIORITY", trackingAccessToken: "" };
+  return {
+    b2c: { fields, description: "DTDC production pincode, booking, label, cancellation and tracking configuration. Carrier secrets must also be set on the ShipSy VPS.", values },
+    b2b: { fields, description: "DTDC B2B uses the same server-managed production account.", values, sameAsB2c: true },
+  };
+}
+
 function defaultSeedProviders(): ProviderListItem[] {
   const updatedAt = nowIso();
   return [
+    {
+      id: "sp-dtdc",
+      serviceProvider: "dtdc",
+      displayName: "DTDC",
+      logoUrl: "",
+      totalCouriers: 1,
+      enabledCouriers: 1,
+      serviceProviderDisplayName: "DTDC",
+      isEnabled: true,
+      b2c: { configured: false },
+      b2b: { configured: false },
+      status: "active",
+      updatedAt,
+    },
     {
       id: "sp-india-post",
       serviceProvider: "india-post",
@@ -321,6 +350,8 @@ function readStaticCredentials(providerId: string): ProviderCredentialsResponse 
   const fallback =
     providerId === "sp-india-post"
       ? indiaPostCredentials()
+      : providerId === "sp-dtdc"
+        ? dtdcCredentials()
       : providerId === "sp-delhivery"
       ? delhiveryCredentials()
       : providerId === "sp-fship"

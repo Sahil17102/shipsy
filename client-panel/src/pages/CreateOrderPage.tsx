@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useForm, useFormContext, FormProvider, Controller, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,9 +23,10 @@ import {
   formatCurrency,
 } from "@/utils/orderHelpers";
 import { normalizeQuantity, totalDeadWeightKg } from "@/utils/b2bBoxes";
-import { useSaveOrderDraft } from "@/queries/useOrders";
+import { useCreateOrder, useSaveOrderDraft } from "@/queries/useOrders";
 import { FormToggle } from "@/components/forms";
-import type { DraftOrderPayload } from "@/lib/ordersApi";
+import type { AvailableCourier } from "@/lib/ratesApi";
+import type { CreateOrderPayload, DraftOrderPayload } from "@/lib/ordersApi";
 import {
   OrderDetailsSection,
   DeliveryDetailsSection,
@@ -35,6 +36,7 @@ import {
   InvoiceDetailsSection,
   ChargesSummarySection,
   PickupLocationSection,
+  CourierSelectionSection,
   StepIndicator,
   type Step,
 } from "@/components/orders";
@@ -42,6 +44,7 @@ import {
 const STEPS: Step[] = [
   { label: "Order & Delivery", shortLabel: "Order" },
   { label: "Pickup Location", shortLabel: "Pickup" },
+  { label: "Courier Selection", shortLabel: "Courier" },
 ];
 
 function MobileBottomBar({
@@ -50,6 +53,9 @@ function MobileBottomBar({
   totalSteps,
   onNext,
   onBack,
+  onSaveDraft,
+  onCreateOrder,
+  isSavingDraft,
   nextLabel = "Next Step",
 }: {
   isSubmitting: boolean;
@@ -57,6 +63,9 @@ function MobileBottomBar({
   totalSteps: number;
   onNext: () => void;
   onBack?: () => void;
+  onSaveDraft?: () => void;
+  onCreateOrder?: () => void;
+  isSavingDraft?: boolean;
   nextLabel?: string;
 }) {
   const { watch } = useFormContext<OrderFormValues>();
@@ -87,6 +96,18 @@ function MobileBottomBar({
             </button>
           )}
 
+          {currentStep >= 2 && onSaveDraft && (
+            <button
+              type="button"
+              onClick={onSaveDraft}
+              disabled={isSavingDraft || isSubmitting}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-xl text-sm font-bold text-primary border border-primary/25 bg-primary/[0.04] disabled:opacity-60"
+            >
+              {isSavingDraft ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {isSavingDraft ? "Saving..." : <><span className="sm:hidden">Draft</span><span className="hidden sm:inline">Save Draft</span></>}
+            </button>
+          )}
+
           {currentStep < totalSteps ? (
             <button
               type="button"
@@ -98,18 +119,19 @@ function MobileBottomBar({
             </button>
           ) : (
             <button
-              type="submit"
+              type="button"
+              onClick={onCreateOrder}
               disabled={isSubmitting}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-accent to-accent-hover shadow-lg shadow-orange-500/20 disabled:opacity-60"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving...
+                  Booking...
                 </>
               ) : (
                 <>
-                  Save to Drafts
+                  Book Shipment
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -125,7 +147,13 @@ export function CreateOrderPage() {
   const navigate = useNavigate();
   const { data: kyc, isLoading: isKycLoading, isFetching: isKycFetching } = useKyc();
   const saveDraftMutation = useSaveOrderDraft();
+  const createOrderMutation = useCreateOrder();
   const [currentStep, setCurrentStep] = useState(1);
+  const availableCouriersRef = useRef<AvailableCourier[]>([]);
+
+  const handleCouriersLoaded = useCallback((couriers: AvailableCourier[]) => {
+    availableCouriersRef.current = couriers;
+  }, []);
 
   const methods = useForm<OrderFormValues>({
     resolver: zodResolver(orderFormSchema),
@@ -180,10 +208,10 @@ export function CreateOrderPage() {
 
   const currentOrderType = watchField("orderType");
 
-  const onSubmit = async (data: OrderFormValues) => {
+  const buildDraftPayload = (data: OrderFormValues): DraftOrderPayload | null => {
     if (!data.pickupAddressId) {
       toast.error("Please select a pickup address");
-      return;
+      return null;
     }
 
     const subtotal = calcSubtotal(data.products);
@@ -208,7 +236,7 @@ export function CreateOrderPage() {
       topHeight = Math.max(...data.packages.map((p) => p.height ?? 0));
     }
 
-    const payload: DraftOrderPayload = {
+    return {
       orderId: data.orderId,
       orderDate: data.orderDate,
       orderType: data.orderType,
@@ -253,10 +281,58 @@ export function CreateOrderPage() {
         })),
       }),
     };
+  };
+
+  const onSaveDraft = async (data: OrderFormValues) => {
+    const payload = buildDraftPayload(data);
+    if (!payload) return;
 
     try {
       await saveDraftMutation.mutateAsync(payload);
       navigate("/orders/drafts");
+    } catch {
+      // Error handled by mutation onError
+    }
+  };
+
+  const onSubmit = async (data: OrderFormValues) => {
+    const selectedCourier = availableCouriersRef.current.find(
+      (courier) => courier.courierId === data.selectedCourierId,
+    );
+    if (!selectedCourier) {
+      toast.error("Please select a courier partner");
+      return;
+    }
+
+    const draftPayload = buildDraftPayload(data);
+    if (!draftPayload) return;
+    const payload: CreateOrderPayload = {
+      ...draftPayload,
+      chargeableWeight: selectedCourier.chargeableWeight,
+      courierId: selectedCourier.courierId,
+      courierName: selectedCourier.name,
+      serviceProvider: selectedCourier.serviceProvider,
+      rate: {
+        forward: selectedCourier.rate.forward,
+        rto: selectedCourier.rate.rto,
+        codCharges: selectedCourier.rate.codCharges,
+        otherCharges: selectedCourier.rate.otherCharges,
+        freightCharge: selectedCourier.rate.freightCharge,
+        totalCharge: selectedCourier.rate.totalCharge,
+        zone: selectedCourier.zone.code,
+      },
+      ...(draftPayload.orderType === "B2B" && selectedCourier._b2bRate ? {
+        chargesBreakdown: {
+          baseFreight: selectedCourier._b2bRate.baseFreight,
+          overheads: selectedCourier._b2bRate.overheads,
+          total: selectedCourier._b2bRate.total,
+        },
+      } : {}),
+    };
+
+    try {
+      const order = await createOrderMutation.mutateAsync(payload);
+      navigate(`/orders/${order.id}`);
     } catch {
       // Error handled by mutation onError
     }
@@ -385,8 +461,14 @@ export function CreateOrderPage() {
 
   const handleNext = () => goToStep(Math.min(currentStep + 1, STEPS.length));
   const handleBack = () => goToStep(Math.max(currentStep - 1, 1));
+  const handleSaveDraft = () => void handleSubmit(onSaveDraft, onError)();
+  const handleCreateOrder = () => void handleSubmit(onSubmit, onError)();
 
-  const nextLabel = currentStep === 1 ? "Next: Pickup Location" : undefined;
+  const nextLabel = currentStep === 1
+    ? "Next: Pickup Location"
+    : currentStep === 2
+      ? "Next: Courier Selection"
+      : undefined;
 
   // ── KYC Gate ──
   if (isKycLoading || isKycFetching) {
@@ -502,7 +584,7 @@ export function CreateOrderPage() {
         </div>
 
         {/* Form — grid is OUTSIDE motion containers so sticky works */}
-        <form onSubmit={handleSubmit(onSubmit, onError)} className="w-full pb-24 lg:pb-0">
+        <form onSubmit={(event) => event.preventDefault()} className="w-full pb-24 lg:pb-0">
           <div className="grid grid-cols-1 lg:grid-cols-10 gap-5 items-start w-full">
             {/* Left column: step content (animated) */}
             <div className="lg:col-span-7 min-w-0 min-h-[calc(100vh-12rem)]">
@@ -537,6 +619,19 @@ export function CreateOrderPage() {
                   </motion.div>
                 )}
 
+                {currentStep === 3 && (
+                  <motion.div
+                    key="step3"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.25 }}
+                    className="space-y-4"
+                  >
+                    <CourierSelectionSection onCouriersLoaded={handleCouriersLoaded} />
+                  </motion.div>
+                )}
+
               </AnimatePresence>
             </div>
 
@@ -544,14 +639,17 @@ export function CreateOrderPage() {
             <div className="hidden lg:block lg:col-span-3 min-w-0">
               <div className="sticky top-5 max-h-[calc(100vh-2.5rem)] overflow-y-auto scrollbar-thin">
                 <ChargesSummarySection
-                  isSubmitting={isSubmitting}
+                  isSubmitting={isSubmitting || createOrderMutation.isPending}
+                  isSavingDraft={saveDraftMutation.isPending}
                   currentStep={currentStep}
                   totalSteps={STEPS.length}
                   onNext={handleNext}
                   onBack={currentStep > 1 ? handleBack : undefined}
+                  onSaveDraft={handleSaveDraft}
+                  onCreateOrder={handleCreateOrder}
                   nextLabel={nextLabel}
-                  submitLabel="Save to Drafts"
-                  submittingLabel="Saving Draft..."
+                  submitLabel="Book Shipment"
+                  submittingLabel="Booking Shipment..."
                 />
               </div>
             </div>
@@ -559,11 +657,14 @@ export function CreateOrderPage() {
 
           {/* Mobile fixed bottom bar */}
           <MobileBottomBar
-            isSubmitting={isSubmitting}
+            isSubmitting={isSubmitting || createOrderMutation.isPending}
+            isSavingDraft={saveDraftMutation.isPending}
             currentStep={currentStep}
             totalSteps={STEPS.length}
             onNext={handleNext}
             onBack={currentStep > 1 ? handleBack : undefined}
+            onSaveDraft={handleSaveDraft}
+            onCreateOrder={handleCreateOrder}
             nextLabel={nextLabel}
           />
         </form>

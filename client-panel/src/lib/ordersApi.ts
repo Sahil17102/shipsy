@@ -24,6 +24,7 @@ import {
   type FshipTrackingResponse,
 } from "./fshipApi";
 import { indiaPostApi, makeIndiaPostOrder } from "./indiaPostApi";
+import { dtdcApi } from "./dtdcApi";
 import type { AvailableCourier } from "./ratesApi";
 
 async function mirrorProviderOrder(order: Order): Promise<void> {
@@ -564,6 +565,78 @@ async function createIndiaPostOrder(data: CreateOrderPayload): Promise<Order> {
   return order;
 }
 
+async function createDtdcOrder(data: CreateOrderPayload): Promise<Order> {
+  let pickup = findStoredPickupAddress(data.pickupAddressId);
+  if (!pickup) {
+    const response = await api.get<{ address?: StoredProviderPickupAddress }>(`/pickup-addresses/${data.pickupAddressId}`);
+    pickup = response.data?.address;
+  }
+  if (!pickup) throw new Error("Selected pickup address could not be loaded for DTDC");
+  const chargeableKg = Math.max(b2cChargeableKg(data.weight, data.length, data.breadth, data.height), 0.5);
+  const firstInvoice = data.invoices?.[0];
+  const booking = await dtdcApi.createOrder({
+    consignments: [{
+      load_type: "NON-DOCUMENT",
+      consignment_type: "Forward",
+      description: data.products.map((product) => product.name).join(", ").slice(0, 250),
+      dimension_unit: "cm",
+      length: String(data.length || 1),
+      width: String(data.breadth || 1),
+      height: String(data.height || 1),
+      weight_unit: "kg",
+      weight: String(chargeableKg),
+      declared_value: String(round(data.orderAmount, 2)),
+      cod_collection_mode: data.paymentType === "cod" ? "cash" : "",
+      cod_amount: data.paymentType === "cod" ? String(round(data.codAmount, 2)) : "0",
+      num_pieces: "1",
+      invoice_number: firstInvoice?.invoiceNumber || data.orderId,
+      customer_reference_number: data.orderId,
+      origin_details: {
+        name: String(pickup.contactName || pickup.nickname || "ShipSy Seller"),
+        phone: String(pickup.phone || ""),
+        address_line_1: String(pickup.addressLine1 || ""),
+        address_line_2: String(pickup.addressLine2 || ""),
+        pincode: String(pickup.pincode || ""),
+        city: String(pickup.city || ""),
+        state: String(pickup.state || ""),
+      },
+      destination_details: {
+        name: data.buyerName,
+        phone: data.buyerPhone,
+        address_line_1: data.address,
+        address_line_2: data.address2 || "",
+        pincode: data.pincode,
+        city: data.city,
+        state: data.state,
+      },
+      return_details: {
+        name: String(pickup.contactName || pickup.nickname || "ShipSy Seller"),
+        phone: String(pickup.phone || ""),
+        address_line_1: String(pickup.addressLine1 || ""),
+        address_line_2: String(pickup.addressLine2 || ""),
+        pincode: String(pickup.pincode || ""),
+        city: String(pickup.city || ""),
+        state: String(pickup.state || ""),
+      },
+    }],
+  });
+  if (!booking.success || !booking.awb) throw new Error("DTDC did not return an AWB number");
+  const providerOrderId = booking.referenceNumber || data.orderId;
+  const order: Order & { providerOrderId: string } = {
+    ...makeOrderFromPayload(data, providerOrderId, booking.awb),
+    id: providerOrderId,
+    providerOrderId,
+    awb: booking.awb,
+    status: "booked",
+    serviceProvider: "dtdc",
+    courierName: data.courierName || "DTDC Priority",
+  };
+  const existing = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
+  courierApi.writeStoredOrders([order, ...existing.filter((item) => item.id !== order.id)]);
+  await mirrorProviderOrder(order);
+  return order;
+}
+
 function mapFshipTrackingEvents(providerOrderId: string, awb: string, data: FshipTrackingResponse, source: "fship" | "delivery"): TrackingEvent[] {
   const scans = data.trackingdata ?? [];
   if (scans.length > 0) {
@@ -989,6 +1062,10 @@ export const ordersApi = {
         return await createIndiaPostOrder(data);
       }
 
+      if (data.serviceProvider?.toLowerCase() === "dtdc" || data.courierId.toLowerCase().startsWith("dtdc:")) {
+        return await createDtdcOrder(data);
+      }
+
       if (shouldUseCourierApi()) {
         if (!isCourierApiConfigured()) {
           throw new Error(
@@ -1295,10 +1372,17 @@ export const ordersApi = {
     const fshipOrder = fshipStored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
     if (fshipOrder) {
       const providerApi = connectedApiFor(fshipOrder.serviceProvider);
-      await providerApi.cancelOrder(fshipOrder.orderId || fshipOrder.providerOrderId || id, reason);
+      const cancellation = await providerApi.cancelOrder(fshipOrder.orderId || fshipOrder.providerOrderId || id, reason);
+      if (cancellation.status === false) {
+        throw new Error(cancellation.response || "Shipping provider did not cancel the order");
+      }
       const updated = { ...fshipOrder, status: "cancelled" as const, cancelledAt: new Date().toISOString() };
       const providerStored = providerApi.readStoredOrders<Order & { providerOrderId: string }>();
       providerApi.writeStoredOrders([updated, ...providerStored.filter((item) => item.id !== updated.id)]);
+      // The order list is loaded from the seller-scoped VPS mirror. Persist the
+      // provider result there as well, otherwise a refetch restores the stale
+      // pre-cancellation status even though the courier accepted the request.
+      await mirrorProviderOrder(updated);
       return updated;
     }
 

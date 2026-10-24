@@ -13,6 +13,12 @@ interface ListCouriersParams {
 const useStaticCourierData = import.meta.env.VITE_STATIC_DATA_ENABLED === "true";
 const SHARED_COURIERS_URL = "https://shipsy-kyio.onrender.com/api/couriers";
 
+function withDtdcCouriers(couriers: ListCouriersResponse["couriers"]): ListCouriersResponse["couriers"] {
+  const existing = new Set(couriers.map((courier) => courier.id));
+  const dtdc = defaultCourierResponse({ limit: 100 }).couriers.filter((courier) => courier.serviceProvider === "dtdc");
+  return [...couriers, ...dtdc.filter((courier) => !existing.has(courier.id))];
+}
+
 async function sharedRequest(body?: Record<string, unknown>): Promise<any> {
   const response = await fetch(SHARED_COURIERS_URL, body ? {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -38,7 +44,7 @@ export const couriersApi = {
   list: async (params?: ListCouriersParams): Promise<ListCouriersResponse> => {
     try {
       const data = await sharedRequest();
-      if (Array.isArray(data.couriers)) return toResponse(data.couriers, params);
+      if (Array.isArray(data.couriers)) return toResponse(withDtdcCouriers(data.couriers), params);
     } catch { /* Fall through to the configured admin API or seeded data. */ }
 
     if (useStaticCourierData) {

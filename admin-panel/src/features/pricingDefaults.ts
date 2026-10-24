@@ -28,6 +28,7 @@ export function defaultCouriers(): CourierListItem[] {
     makeCourier("fship:b2b-surface", "FShip B2B Surface", "b2b", "fship", "FShip"),
     makeCourier("logixmitra:surface", "Delivery Surface", "b2c", "logixmitra", "Delivery"),
     makeCourier("logixmitra:b2b-surface", "Delivery B2B Surface", "b2b", "logixmitra", "Delivery"),
+    makeCourier("dtdc:priority", "DTDC Priority", "b2c", "dtdc", "DTDC"),
     makeCourier("manual:80", "Standard Courier", "b2c"),
     makeCourier("manual:152", "B2B Freight", "b2b"),
     makeCourier("manual:161", "Local Express", "b2c"),
@@ -332,6 +333,13 @@ function defaultB2cPricing(): B2cPricingItem[] {
       [70, 56, 40, 2],
       [92, 72, 40, 2],
     ], "logixmitra"),
+    makeB2cPricing("dtdc:priority", "DTDC Priority", "surface", [
+      [38, 32, 40, 2],
+      [48, 40, 40, 2],
+      [62, 50, 40, 2],
+      [78, 62, 40, 2],
+      [102, 80, 40, 2],
+    ], "dtdc"),
     makeB2cPricing("manual:80", "Standard Courier", "surface", [
       [38, 32, 45, 2],
       [45, 38, 45, 2],

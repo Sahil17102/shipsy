@@ -14,6 +14,7 @@ import {
   type FshipShipmentRate,
 } from "./fshipApi";
 import { indiaPostApi } from "./indiaPostApi";
+import { dtdcApi } from "./dtdcApi";
 
 export interface DelhiveryRate {
   total_amount: number;
@@ -55,8 +56,39 @@ export interface AvailableCourier {
   minWeight: number;
   rate: CourierRate;
   tag?: "economy" | "fastest";
+  bookingReady?: boolean;
+  unavailableReason?: string;
   /** Present only for B2B couriers — carries the line-by-line freight breakdown. */
   _b2bRate?: B2bCourierRate;
+}
+
+async function getDtdcRate(params: AvailableCouriersParams): Promise<AvailableCourier[]> {
+  if (params.orderType === "B2B") return [];
+  const [status, serviceability] = await Promise.all([
+    dtdcApi.status(),
+    dtdcApi.pincode(params.origin, params.destination),
+  ]);
+  const pin = serviceability.data?.ZIPCODE_RESP?.[0];
+  if (!serviceability.ok || pin?.MESSAGE !== "SUCCESS" || pin?.SERVFLAG !== "Y") return [];
+  const chargeableKg = b2cChargeableKg(params.weight, params.length, params.breadth, params.height);
+  const slabs = Math.max(1, Math.ceil(chargeableKg / 0.5));
+  const freight = round(48 * slabs);
+  const cod = codCharge(params.paymentType, params.orderAmount);
+  const gst = round((freight + cod) * 0.18);
+  return [{
+    courierId: "dtdc:priority",
+    name: "DTDC Priority",
+    serviceProvider: "dtdc",
+    serviceProviderDisplayName: "DTDC",
+    logo: null,
+    mode: "surface",
+    zone: { code: "DTDC", name: "DTDC serviceable · ShipSy rate" },
+    chargeableWeight: Math.ceil(chargeableKg * 1000),
+    minWeight: 500,
+    rate: { forward: freight, rto: round(42 * slabs), codCharges: cod, otherCharges: gst, freightCharge: freight, totalCharge: round(freight + cod + gst) },
+    bookingReady: status.bookingConfigured,
+    unavailableReason: status.bookingConfigured ? undefined : "DTDC production API key and customer code are not configured on the ShipSy server.",
+  }];
 }
 
 export interface AvailableCouriersParams {
@@ -748,14 +780,15 @@ export const ratesApi = {
   ): Promise<AvailableCourier[]> => {
     const sharedCouriers = await getSharedCouriers("b2c");
     const indiaPostRates = await getIndiaPostRates(params).catch(() => []);
-    const [courierRates, connectedRates, platformRates] = await Promise.all([
+    const [courierRates, connectedRates, platformRates, dtdcRates] = await Promise.all([
       shouldUseCourierApi() ? getCourierApiRates(params).catch(() => []) : Promise.resolve([]),
       shouldUseFshipApi() && isFshipApiConfigured() ? getConnectedProviderRates(params).catch(() => []) : Promise.resolve([]),
       api.post<{ success: boolean; data: AvailableCourier[] }>("/rates/available", params)
         .then(({ data }) => Array.isArray(data.data) ? data.data : [])
         .catch(() => []),
+      getDtdcRate(params).catch(() => []),
     ]);
-    const liveRates = uniqueRates([...courierRates, ...connectedRates, ...platformRates]);
+    const liveRates = uniqueRates([...courierRates, ...connectedRates, ...platformRates, ...dtdcRates]);
     const fallbackRates = makeFallbackB2cRates(params, sharedCouriers);
     const seen = new Set(liveRates.map((item) => `${item.serviceProvider}:${item.courierId}`.toLowerCase()));
     return mergeIndiaPostRates([

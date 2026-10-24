@@ -15,10 +15,13 @@ import type { OrderFormValues } from "@/schemas/orderSchema";
 
 interface ChargesSummarySectionProps {
   isSubmitting: boolean;
+  isSavingDraft?: boolean;
   currentStep: number;
   totalSteps: number;
   onNext: () => void;
   onBack?: () => void;
+  onSaveDraft?: () => void;
+  onCreateOrder?: () => void;
   nextLabel?: string;
   submitLabel?: string;
   submittingLabel?: string;
@@ -57,10 +60,13 @@ function SummaryRow({
 
 export function ChargesSummarySection({
   isSubmitting,
+  isSavingDraft = false,
   currentStep,
   totalSteps,
   onNext,
   onBack,
+  onSaveDraft,
+  onCreateOrder,
   nextLabel = "Next Step",
   submitLabel = "Create Order",
   submittingLabel = "Creating Order...",
@@ -200,6 +206,26 @@ export function ChargesSummarySection({
           </button>
         )}
 
+      {currentStep >= 2 && onSaveDraft && (
+        <motion.button
+          type="button"
+          onClick={onSaveDraft}
+          disabled={isSavingDraft || isSubmitting}
+          whileHover={{ scale: isSavingDraft || isSubmitting ? 1 : 1.01 }}
+          whileTap={{ scale: isSavingDraft || isSubmitting ? 1 : 0.98 }}
+          className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-sm font-bold text-primary border border-primary/25 bg-primary/[0.04] hover:bg-primary/[0.08] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {isSavingDraft ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Saving Draft...
+            </>
+          ) : (
+            "Save to Drafts"
+          )}
+        </motion.button>
+      )}
+
       {currentStep < totalSteps ? (
         <motion.button
           type="button"
@@ -213,7 +239,8 @@ export function ChargesSummarySection({
         </motion.button>
       ) : (
         <motion.button
-          type="submit"
+          type="button"
+          onClick={onCreateOrder}
           disabled={isSubmitting}
           whileHover={{ scale: isSubmitting ? 1 : 1.01 }}
           whileTap={{ scale: isSubmitting ? 1 : 0.98 }}

@@ -44,6 +44,7 @@ const PRICING_COURIERS = {
   "fship:b2b-surface": { id: "fship:b2b-surface", name: "FShip B2B Surface", serviceProvider: "fship", displayName: "FShip" },
   "logixmitra:surface": { id: "logixmitra:surface", name: "Delivery Surface", serviceProvider: "logixmitra", displayName: "Delivery" },
   "logixmitra:b2b-surface": { id: "logixmitra:b2b-surface", name: "Delivery B2B Surface", serviceProvider: "logixmitra", displayName: "Delivery" },
+  "dtdc:priority": { id: "dtdc:priority", name: "DTDC Priority", serviceProvider: "dtdc", displayName: "DTDC" },
   "manual:80": { id: "manual:80", name: "Standard Courier", serviceProvider: "manual", displayName: "Manual" },
   "manual:152": { id: "manual:152", name: "B2B Freight", serviceProvider: "manual", displayName: "Manual" },
   "manual:161": { id: "manual:161", name: "Local Express", serviceProvider: "manual", displayName: "Manual" },
@@ -127,7 +128,7 @@ app.use(express.json({ limit: "2mb", verify: (req, _res, buffer) => {
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 registerIndiaPostRoutes(app, { dataDir });
-registerDtdcRoutes(app);
+registerDtdcRoutes(app, { requireSeller });
 
 const otpStore = new Map();
 let mailTransport;

@@ -170,6 +170,7 @@ function CourierRow({
   const tag = courier.tag ? tagConfig[courier.tag] : null;
   const isExpress = courier.mode === "air";
   const hasBreakdown = getRateLineItems(courier).length > 0;
+  const isUnavailable = courier.bookingReady === false;
 
   return (
     <motion.div
@@ -181,14 +182,16 @@ function CourierRow({
         ease: animationConfig.ease.out,
       }}
       className={`first:rounded-t-xl last:rounded-b-xl overflow-hidden transition-colors duration-200 ${
-        isSelected ? "bg-primary/[0.04]" : "hover:bg-surface-muted/40"
+        isUnavailable ? "bg-surface-muted/30 opacity-70" : isSelected ? "bg-primary/[0.04]" : "hover:bg-surface-muted/40"
       }`}
     >
     <motion.button
       type="button"
       onClick={onSelect}
+      disabled={isUnavailable}
       whileTap={{ scale: 0.998, transition: { duration: 0.1 } }}
-      className="group relative w-full text-left px-4 py-3 cursor-pointer flex items-center gap-3"
+      title={courier.unavailableReason}
+      className={`group relative w-full text-left px-4 py-3 flex items-center gap-3 ${isUnavailable ? "cursor-not-allowed" : "cursor-pointer"}`}
     >
       {/* Left accent bar for selected */}
       <div
@@ -242,6 +245,7 @@ function CourierRow({
         <p className="text-[11px] text-tertiary mt-px truncate">
           {courier.serviceProviderDisplayName}
         </p>
+        {isUnavailable && <p className="text-[10px] text-amber-600 mt-0.5 truncate">Setup required for real booking</p>}
       </div>
 
       {/* Tag */}

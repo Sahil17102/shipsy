@@ -28,7 +28,56 @@ const OPERATIONS = {
   generateEpod: "Retrieve ePOD for one or more DTDC reference numbers",
 };
 
-export function registerDtdcRoutes(app) {
+export function registerDtdcRoutes(app, { requireSeller } = {}) {
+  app.get("/api/providers/dtdc/status", (_req, res) => {
+    res.set("Cache-Control", "no-store").json({
+      connected: bookingConfigured(),
+      bookingConfigured: bookingConfigured(),
+      trackingConfigured: trackingConfigured(),
+      pincodeConfigured: true,
+      environment: environment(),
+      provider: "DTDC",
+    });
+  });
+
+  app.post("/api/providers/dtdc/pincode", async (req, res, next) => {
+    try {
+      const result = await callDtdc({ operation: "pincodeServiceability", payload: req.body || {} });
+      res.status(result.ok ? 200 : result.status || 502).set("Cache-Control", "no-store").json(result);
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/providers/dtdc/create-order", async (req, res, next) => {
+    try {
+      requireSeller?.(req);
+      const result = await callDtdc({ operation: "createShipment", payload: req.body || {} });
+      if (!result.ok) return res.status(result.status || 502).json(result);
+      const awb = deepString(result.data, ["awb_number", "awb_no", "awb", "waybill", "consignment_number"]);
+      const referenceNumber = deepString(result.data, ["reference_number", "customer_reference_number", "referenceNo"]);
+      if (!awb) return res.status(502).json({ message: "DTDC accepted the request but returned no AWB number", upstream: result.data });
+      return res.status(201).json({ success: true, awb, referenceNumber, environment: result.environment, upstream: result.data });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/api/providers/dtdc/cancel-order", async (req, res, next) => {
+    try {
+      requireSeller?.(req);
+      const awb = clean(req.body?.awb || req.body?.waybill);
+      if (!awb) throw statusError("DTDC AWB is required", 400);
+      const result = await callDtdc({ operation: "cancelShipment", params: { AWBNo: [awb] } });
+      res.status(result.ok ? 200 : result.status || 502).json(result);
+    } catch (error) { next(error); }
+  });
+
+  app.get("/api/providers/dtdc/track", async (req, res, next) => {
+    try {
+      const awb = clean(req.query?.awb || req.query?.waybill);
+      if (!awb) throw statusError("DTDC AWB is required", 400);
+      const result = await callDtdc({ operation: "trackShipment", params: { trkType: "cnno", strcnno: awb, addtnlDtl: "Y" } });
+      res.status(result.ok ? 200 : result.status || 502).json(result);
+    } catch (error) { next(error); }
+  });
+
   app.get("/api/dtdc", (_req, res) => {
     res.set("Cache-Control", "no-store").json({
       ok: true,
@@ -179,6 +228,29 @@ function bookingConfig() {
   const customerCode = clean(process.env.DTDC_CUSTOMER_CODE);
   if (!apiKey || !customerCode) throw statusError("DTDC_API_KEY and DTDC_CUSTOMER_CODE must be configured on the server", 503);
   return { apiKey, customerCode, serviceTypeId: clean(process.env.DTDC_SERVICE_TYPE_ID) || "PRIORITY" };
+}
+
+function bookingConfigured() {
+  return Boolean(clean(process.env.DTDC_API_KEY) && clean(process.env.DTDC_CUSTOMER_CODE));
+}
+
+function trackingConfigured() {
+  return Boolean(clean(process.env.DTDC_TRACKING_ACCESS_TOKEN) || (clean(process.env.DTDC_TRACKING_USERNAME) && clean(process.env.DTDC_TRACKING_PASSWORD)));
+}
+
+function deepString(value, keys) {
+  const wanted = new Set(keys.map((key) => key.toLowerCase()));
+  const queue = [value];
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object") continue;
+    if (Array.isArray(current)) { queue.push(...current); continue; }
+    for (const [key, item] of Object.entries(current)) {
+      if (wanted.has(key.toLowerCase()) && item !== undefined && item !== null && String(item).trim()) return String(item).trim();
+      if (item && typeof item === "object") queue.push(item);
+    }
+  }
+  return "";
 }
 
 function apiHeaders(apiKey) {
