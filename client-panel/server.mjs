@@ -966,10 +966,9 @@ app.post("/api/wallet/orders/debit", (req, res, next) => {
 app.post("/api/wallet/orders/refund", (req, res, next) => {
   try {
     const seller = requireSeller(req);
-    const amount = Math.round(Number(req.body?.amount) * 100) / 100;
     const orderId = String(req.body?.orderId || "").trim();
     const serviceProvider = String(req.body?.serviceProvider || "courier").trim();
-    if (!orderId || !Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "A valid order and refund amount are required." });
+    if (!orderId) return res.status(400).json({ message: "A valid order is required for the refund." });
     const ledger = walletLedger();
     const refundedDebitIds = new Set(ledger.transactions
       .filter((transaction) => transaction.type === "credit" && transaction.meta?.source === "order_shipping_refund")
@@ -983,7 +982,10 @@ app.post("/api/wallet/orders/refund", (req, res, next) => {
     }
     const existing = ledger.transactions.find((transaction) => transaction.type === "credit" && String(transaction.userId) === String(seller.id) && transaction.meta?.source === "order_shipping_refund" && String(transaction.meta?.debitTransactionId || "") === String(debit.id));
     if (existing) return res.json({ balance: walletBalance(ledger.transactions, seller.id), currency: "INR", transaction: existing, alreadyRefunded: true });
-    const refundAmount = Math.min(amount, Number(debit.amount || 0));
+    // Always reverse the exact recorded shipment debit. The client-provided
+    // rate may be stale or rounded differently, while the ledger is the source
+    // of truth. debitTransactionId keeps retries from crediting twice.
+    const refundAmount = Number(debit.amount || 0);
     const transaction = {
       id: crypto.randomUUID(), walletId: `wallet-${seller.id}`, userId: seller.id, amount: refundAmount, currency: "INR", type: "credit",
       reason: `Shipping charge refund - ${orderId}`, ref: orderId,

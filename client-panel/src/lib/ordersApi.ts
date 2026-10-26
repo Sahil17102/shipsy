@@ -34,6 +34,21 @@ async function mirrorProviderOrder(order: Order): Promise<void> {
   await api.post("/provider-orders", order, { timeout: 15_000 }).catch(() => undefined);
 }
 
+async function refundCancelledOrder(order: Order): Promise<void> {
+  const orderId = String(order.orderId || "").trim();
+  if (!orderId) throw new Error("Shipment was cancelled, but its wallet debit reference is missing");
+
+  try {
+    // The API resolves the exact, still-unrefunded debit for this seller and
+    // order. This keeps cancellation refunds correct even when a displayed
+    // rate changed later, and makes retrying the cancellation idempotent.
+    await walletApi.refundOrder(undefined, orderId, order.serviceProvider || order.courierName || "courier");
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Unknown wallet error";
+    throw new Error(`Shipment ${orderId} was cancelled, but the wallet refund could not be completed. Retry cancellation to safely retry only the refund. ${detail}`);
+  }
+}
+
 // Re-export types for backward compatibility
 export type { Order, OrderStatus, OrderAddress, OrderProduct, OrderRate, CreateOrderPayload, DraftOrderPayload, TrackingEvent } from "./ordersTypes";
 
@@ -1371,6 +1386,10 @@ export const ordersApi = {
     const fshipStored = readConnectedOrders();
     const fshipOrder = fshipStored.find((order) => order.id === id || order.orderId === id || order.providerOrderId === id || order.awb === id);
     if (fshipOrder) {
+      if (fshipOrder.status === "cancelled") {
+        await refundCancelledOrder(fshipOrder);
+        return fshipOrder;
+      }
       const providerApi = connectedApiFor(fshipOrder.serviceProvider);
       const cancellation = await providerApi.cancelOrder(fshipOrder.orderId || fshipOrder.providerOrderId || id, reason);
       if (cancellation.status === false) {
@@ -1383,16 +1402,25 @@ export const ordersApi = {
       // provider result there as well, otherwise a refetch restores the stale
       // pre-cancellation status even though the courier accepted the request.
       await mirrorProviderOrder(updated);
+      await refundCancelledOrder(updated);
       return updated;
     }
 
     if (shouldUseCourierApi()) {
       const order = await ordersApi.getById(id);
+      if (order.status === "cancelled") {
+        await refundCancelledOrder(order);
+        return order;
+      }
       // Delhivery orders are created through the Delhivery proxy and must not
       // be sent to the Teampafex cancellation endpoint.
-      if (order.serviceProvider === "delhivery") {
+      const serviceProvider = String(order.serviceProvider || "").toLowerCase();
+      if (serviceProvider === "delhivery") {
         if (!order.awb) throw new Error("Delhivery AWB is missing; shipment was not cancelled");
         await api.post("/providers/delhivery/cancel-order", { waybill: order.awb });
+      } else if (serviceProvider === "dtdc") {
+        if (!order.awb) throw new Error("DTDC AWB is missing; shipment was not cancelled");
+        await dtdcApi.cancelOrder(order.awb);
       } else {
         await courierApi.cancelOrder(extractProviderOrderId(id));
       }
@@ -1400,11 +1428,14 @@ export const ordersApi = {
       const stored = courierApi.readStoredOrders<Order & { providerOrderId: string }>();
       courierApi.writeStoredOrders([updated as Order & { providerOrderId: string }, ...stored.filter((item) => item.id !== updated.id)]);
       await mirrorProviderOrder(updated);
+      await refundCancelledOrder(updated);
       return updated;
     }
 
     const { data } = await api.post(`/orders/${id}/cancel`, { reason });
-    return data.order as Order;
+    const updated = data.order as Order;
+    await refundCancelledOrder(updated);
+    return updated;
   },
 
   getTracking: async (id: string): Promise<TrackingEvent[]> => {

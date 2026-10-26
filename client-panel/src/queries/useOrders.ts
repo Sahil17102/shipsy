@@ -156,7 +156,9 @@ export function useCancelOrder() {
     mutationFn: ({ id, reason }: { id: string; reason?: string }) => ordersApi.cancelOrder(id, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ORDERS_QUERY_KEY });
-      toast.success("Order cancelled");
+      queryClient.invalidateQueries({ queryKey: WALLET_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: WALLET_TRANSACTIONS_KEY });
+      toast.success("Order cancelled", { description: "The shipping charge has been refunded to your wallet." });
     },
     onError: (error: Error) => {
       toast.error("Cancel failed", { description: error.message });

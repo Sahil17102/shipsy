@@ -278,9 +278,9 @@ export const walletApi = {
     return data;
   },
 
-  refundOrder: async (amount: number, orderId: string, serviceProvider?: string): Promise<void> => {
+  refundOrder: async (amount: number | undefined, orderId: string, serviceProvider?: string): Promise<void> => {
     await api.post("/wallet/orders/refund", {
-      amount: Math.round(amount * 100) / 100,
+      ...(amount == null ? {} : { amount: Math.round(amount * 100) / 100 }),
       orderId,
       serviceProvider,
     });

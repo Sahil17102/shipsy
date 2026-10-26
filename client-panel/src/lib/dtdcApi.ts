@@ -26,10 +26,19 @@ export interface DtdcBookingResult {
   environment: "staging" | "production";
 }
 
+export interface DtdcCancellationResult {
+  ok: boolean;
+  status: number;
+  environment: "staging" | "production";
+  data?: unknown;
+}
+
 export const dtdcApi = {
   status: async (): Promise<DtdcStatus> => (await api.get<DtdcStatus>("/providers/dtdc/status")).data,
   pincode: async (orgPincode: string, desPincode: string): Promise<DtdcPincodeResult> =>
     (await api.post<DtdcPincodeResult>("/providers/dtdc/pincode", { orgPincode, desPincode })).data,
   createOrder: async (payload: Record<string, unknown>): Promise<DtdcBookingResult> =>
     (await api.post<DtdcBookingResult>("/providers/dtdc/create-order", payload, { timeout: 60_000 })).data,
+  cancelOrder: async (awb: string): Promise<DtdcCancellationResult> =>
+    (await api.post<DtdcCancellationResult>("/providers/dtdc/cancel-order", { awb }, { timeout: 60_000 })).data,
 };
