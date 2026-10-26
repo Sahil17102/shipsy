@@ -29,6 +29,7 @@ export function defaultCouriers(): CourierListItem[] {
     makeCourier("logixmitra:surface", "Delivery Surface", "b2c", "logixmitra", "Delivery"),
     makeCourier("logixmitra:b2b-surface", "Delivery B2B Surface", "b2b", "logixmitra", "Delivery"),
     makeCourier("dtdc:priority", "DTDC Priority", "b2c", "dtdc", "DTDC"),
+    makeCourier("dtdc:b2b-smart-express", "DTDC B2B Smart Express", "b2b", "dtdc", "DTDC"),
     makeCourier("manual:80", "Standard Courier", "b2c"),
     makeCourier("manual:152", "B2B Freight", "b2b"),
     makeCourier("manual:161", "Local Express", "b2c"),
@@ -143,6 +144,7 @@ export function defaultB2bZoneRates(params?: {
     makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery"),
     makeCourier("fship:b2b-surface", "FShip B2B Surface", "b2b", "fship", "FShip"),
     makeCourier("logixmitra:b2b-surface", "Delivery B2B Surface", "b2b", "logixmitra", "Delivery"),
+    makeCourier("dtdc:b2b-smart-express", "DTDC B2B Smart Express", "b2b", "dtdc", "DTDC"),
   ];
   const baseRates: Record<string, Record<string, number>> = {
     N: { N: 42, W: 52, S: 62, E: 58, NE: 78 },
@@ -208,6 +210,7 @@ export function defaultB2bPincodes(params?: {
   const east = DEFAULT_B2B_ZONES[3];
   const delhiveryCourier = makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery");
   const logixMitraCourier = makeCourier("logixmitra:b2b-surface", "Delivery B2B Surface", "b2b", "logixmitra", "Delivery");
+  const dtdcCourier = makeCourier("dtdc:b2b-smart-express", "DTDC B2B Smart Express", "b2b", "dtdc", "DTDC");
   const rows: B2bPincode[] = [
     makeB2bPincode("110001", "New Delhi", "Delhi", north, delhiveryCourier),
     makeB2bPincode("400001", "Mumbai", "Maharashtra", west, delhiveryCourier),
@@ -215,6 +218,8 @@ export function defaultB2bPincodes(params?: {
     makeB2bPincode("700001", "Kolkata", "West Bengal", east, logixMitraCourier),
     makeB2bPincode("395001", "Surat", "Gujarat", west, logixMitraCourier),
     makeB2bPincode("800001", "Patna", "Bihar", east, logixMitraCourier),
+    makeB2bPincode("110046", "New Delhi", "Delhi", north, dtdcCourier),
+    makeB2bPincode("636010", "Salem", "Tamil Nadu", south, dtdcCourier),
   ];
   const filtered = rows.filter((row) => {
     if (params?.pincode && !row.pincode.includes(params.pincode)) return false;
@@ -246,6 +251,7 @@ export function defaultB2bAdditionalCharges(params?: {
     makeCourier("delhivery:b2b-ltl", "Delhivery B2B LTL", "b2b", "delhivery", "Delhivery"),
     makeCourier("fship:b2b-surface", "FShip B2B Surface", "b2b", "fship", "FShip"),
     makeCourier("logixmitra:b2b-surface", "Delivery B2B Surface", "b2b", "logixmitra", "Delivery"),
+    makeCourier("dtdc:b2b-smart-express", "DTDC B2B Smart Express", "b2b", "dtdc", "DTDC"),
   ];
   return couriers.map((courier): B2bAdditionalCharge => ({
     id: `seed-b2b-additional-${courier.serviceProvider}-basic`,

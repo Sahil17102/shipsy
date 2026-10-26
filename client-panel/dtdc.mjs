@@ -52,9 +52,18 @@ export function registerDtdcRoutes(app, { requireSeller } = {}) {
       requireSeller?.(req);
       const result = await callDtdc({ operation: "createShipment", payload: req.body || {} });
       if (!result.ok) return res.status(result.status || 502).json(result);
-      const awb = deepString(result.data, ["awb_number", "awb_no", "awb", "waybill", "consignment_number"]);
       const referenceNumber = deepString(result.data, ["reference_number", "customer_reference_number", "referenceNo"]);
-      if (!awb) return res.status(502).json({ message: "DTDC accepted the request but returned no AWB number", upstream: result.data });
+      // DTDC's Customer Softdata Upload API documents `reference_number` as
+      // the consignment identifier used by tracking, labels and cancellation.
+      // Some account responses therefore omit a separate AWB-named property.
+      const awb = deepString(result.data, ["awb_number", "awb_no", "awb", "waybill", "consignment_number"]) || referenceNumber;
+      if (!awb) {
+        const upstreamMessage = deepString(result.data, ["message", "reason", "remarks", "error_message", "errorMessage"]);
+        return res.status(502).json({
+          message: upstreamMessage || "DTDC did not return a consignment reference number",
+          upstream: result.data,
+        });
+      }
       return res.status(201).json({ success: true, awb, referenceNumber, environment: result.environment, upstream: result.data });
     } catch (error) { next(error); }
   });

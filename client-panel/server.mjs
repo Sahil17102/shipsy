@@ -45,6 +45,7 @@ const PRICING_COURIERS = {
   "logixmitra:surface": { id: "logixmitra:surface", name: "Delivery Surface", serviceProvider: "logixmitra", displayName: "Delivery" },
   "logixmitra:b2b-surface": { id: "logixmitra:b2b-surface", name: "Delivery B2B Surface", serviceProvider: "logixmitra", displayName: "Delivery" },
   "dtdc:priority": { id: "dtdc:priority", name: "DTDC Priority", serviceProvider: "dtdc", displayName: "DTDC" },
+  "dtdc:b2b-smart-express": { id: "dtdc:b2b-smart-express", name: "DTDC B2B Smart Express", serviceProvider: "dtdc", displayName: "DTDC" },
   "manual:80": { id: "manual:80", name: "Standard Courier", serviceProvider: "manual", displayName: "Manual" },
   "manual:152": { id: "manual:152", name: "B2B Freight", serviceProvider: "manual", displayName: "Manual" },
   "manual:161": { id: "manual:161", name: "Local Express", serviceProvider: "manual", displayName: "Manual" },

@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api, publicApi } from "@/lib/api";
 import type {
   ProviderCredentialsResponse,
   ListProvidersResponse,
@@ -324,6 +324,36 @@ function mergeSeedProviders(providers: ProviderListItem[]): ProviderListItem[] {
   return [...missingSeeds, ...filtered];
 }
 
+interface DtdcConnectionStatus {
+  bookingConfigured: boolean;
+}
+
+async function readDtdcConnectionStatus(): Promise<DtdcConnectionStatus | null> {
+  try {
+    const { data } = await publicApi.get<DtdcConnectionStatus>("/providers/dtdc/status");
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function applyDtdcConnectionStatus(
+  providers: ProviderListItem[],
+  status: DtdcConnectionStatus | null,
+): ProviderListItem[] {
+  if (!status) return providers;
+  return providers.map((provider) => {
+    if (provider.serviceProvider.toLowerCase() !== "dtdc") return provider;
+    return {
+      ...provider,
+      totalCouriers: Math.max(2, provider.totalCouriers),
+      enabledCouriers: Math.max(2, provider.enabledCouriers),
+      b2c: { configured: status.bookingConfigured },
+      b2b: { configured: status.bookingConfigured, sameAsB2c: true },
+    };
+  });
+}
+
 function isListProvidersResponse(data: unknown): data is ListProvidersResponse {
   const value = data as Partial<ListProvidersResponse> | null;
   return Boolean(
@@ -428,13 +458,25 @@ function listStaticProviders(params?: { page?: number; limit?: number; configure
 export const serviceProvidersApi = {
   list: async (params?: { page?: number; limit?: number; configured?: boolean }): Promise<ListProvidersResponse> => {
     if (import.meta.env.VITE_STATIC_DATA_ENABLED === "true") {
-      return listStaticProviders(params);
+      const response = listStaticProviders(params);
+      const providers = applyDtdcConnectionStatus(response.providers, await readDtdcConnectionStatus());
+      return {
+        ...response,
+        providers,
+        stats: {
+          ...response.stats,
+          b2cConfigured: providers.filter((provider) => provider.b2c.configured).length,
+        },
+      };
     }
 
     try {
-      const { data } = await api.get("/service-providers", { params });
+      const [{ data }, dtdcStatus] = await Promise.all([
+        api.get("/service-providers", { params }),
+        readDtdcConnectionStatus(),
+      ]);
       if (isListProvidersResponse(data) && data.providers.length > 0) {
-        const providers = mergeSeedProviders(data.providers);
+        const providers = applyDtdcConnectionStatus(mergeSeedProviders(data.providers), dtdcStatus);
         return {
           ...data,
           providers,
@@ -450,9 +492,13 @@ export const serviceProvidersApi = {
           },
         };
       }
-      return listStaticProviders(params);
+      const response = listStaticProviders(params);
+      response.providers = applyDtdcConnectionStatus(response.providers, dtdcStatus);
+      return response;
     } catch {
-      return listStaticProviders(params);
+      const response = listStaticProviders(params);
+      response.providers = applyDtdcConnectionStatus(response.providers, await readDtdcConnectionStatus());
+      return response;
     }
   },
 
