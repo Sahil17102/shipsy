@@ -17,6 +17,7 @@ export interface DtdcPincodeResult {
   data?: {
     ZIPCODE_RESP?: Array<{ MESSAGE?: string; SERVFLAG?: string; ORGPIN?: string; DESTPIN?: string }>;
     SERV_LIST_DTLS?: Array<{ CODE?: string; PCODE?: string; NAME?: string; TAT?: string }>;
+    PIN_CITY?: Array<{ PIN?: string; CITY?: string; STATE_NAME?: string }>;
   };
 }
 

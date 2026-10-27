@@ -587,6 +587,14 @@ async function createDtdcOrder(data: CreateOrderPayload): Promise<Order> {
     pickup = response.data?.address;
   }
   if (!pickup) throw new Error("Selected pickup address could not be loaded for DTDC");
+  const pincodeDetails = await dtdcApi.pincode(String(pickup.pincode || ""), data.pincode).catch(() => null);
+  const pinCities = pincodeDetails?.data?.PIN_CITY ?? [];
+  const originPin = pinCities.find((item) => String(item.PIN || "") === String(pickup.pincode || ""));
+  const destinationPin = pinCities.find((item) => String(item.PIN || "") === data.pincode);
+  const originCity = String(originPin?.CITY || pickup.city || "");
+  const originState = String(originPin?.STATE_NAME || pickup.state || "");
+  const destinationCity = String(destinationPin?.CITY || data.city || "");
+  const destinationState = String(destinationPin?.STATE_NAME || data.state || "");
   const chargeableKg = Math.max(b2cChargeableKg(data.weight, data.length, data.breadth, data.height), 0.5);
   const firstInvoice = data.invoices?.[0];
   const commodity = data.products.map((product) => product.name).filter(Boolean).join(", ").slice(0, 100) || "General Merchandise";
@@ -603,7 +611,7 @@ async function createDtdcOrder(data: CreateOrderPayload): Promise<Order> {
       weight: String(chargeableKg),
       declared_value: String(round(data.orderAmount, 2)),
       cod_collection_mode: data.paymentType === "cod" ? "CASH" : "",
-      cod_amount: data.paymentType === "cod" ? String(round(data.codAmount, 2)) : "0",
+      cod_amount: data.paymentType === "cod" ? String(round(data.codAmount, 2)) : "",
       num_pieces: "1",
       invoice_number: firstInvoice?.invoiceNumber || data.orderId,
       customer_reference_number: data.orderId,
@@ -613,20 +621,28 @@ async function createDtdcOrder(data: CreateOrderPayload): Promise<Order> {
       origin_details: {
         name: String(pickup.contactName || pickup.nickname || "ShipSy Seller"),
         phone: String(pickup.phone || ""),
+        alternate_phone: "",
         address_line_1: String(pickup.addressLine1 || ""),
         address_line_2: String(pickup.addressLine2 || ""),
+        email: String(pickup.email || ""),
         pincode: String(pickup.pincode || ""),
-        city: String(pickup.city || ""),
-        state: String(pickup.state || ""),
+        city: originCity,
+        state: originState,
+        latitude: "",
+        longitude: "",
       },
       destination_details: {
         name: data.buyerName,
         phone: data.buyerPhone,
+        alternate_phone: "",
         address_line_1: data.address,
         address_line_2: data.address2 || "",
+        email: data.buyerEmail || "",
         pincode: data.pincode,
-        city: data.city,
-        state: data.state,
+        city: destinationCity,
+        state: destinationState,
+        latitude: "",
+        longitude: "",
       },
       return_details: {
         name: String(pickup.contactName || pickup.nickname || "ShipSy Seller"),
@@ -634,8 +650,12 @@ async function createDtdcOrder(data: CreateOrderPayload): Promise<Order> {
         address_line_1: String(pickup.addressLine1 || ""),
         address_line_2: String(pickup.addressLine2 || ""),
         pincode: String(pickup.pincode || ""),
-        city_name: String(pickup.city || ""),
-        state_name: String(pickup.state || ""),
+        city_name: originCity,
+        state_name: originState,
+        email: String(pickup.email || ""),
+        alternate_phone: "",
+        latitude: "",
+        longitude: "",
       },
     }],
   });
