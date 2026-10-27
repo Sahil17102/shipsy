@@ -1,3 +1,4 @@
+import axios from "axios";
 import { api } from "./api";
 
 export interface DtdcStatus {
@@ -33,12 +34,28 @@ export interface DtdcCancellationResult {
   data?: unknown;
 }
 
+function providerError(error: unknown, fallback: string): Error {
+  if (!axios.isAxiosError(error)) return error instanceof Error ? error : new Error(fallback);
+  const data = error.response?.data as { message?: unknown; error?: unknown } | undefined;
+  const message = typeof data?.message === "string"
+    ? data.message
+    : typeof data?.error === "string"
+      ? data.error
+      : error.message;
+  return new Error(message || fallback);
+}
+
 export const dtdcApi = {
   status: async (): Promise<DtdcStatus> => (await api.get<DtdcStatus>("/providers/dtdc/status")).data,
   pincode: async (orgPincode: string, desPincode: string): Promise<DtdcPincodeResult> =>
     (await api.post<DtdcPincodeResult>("/providers/dtdc/pincode", { orgPincode, desPincode })).data,
-  createOrder: async (payload: Record<string, unknown>): Promise<DtdcBookingResult> =>
-    (await api.post<DtdcBookingResult>("/providers/dtdc/create-order", payload, { timeout: 60_000 })).data,
+  createOrder: async (payload: Record<string, unknown>): Promise<DtdcBookingResult> => {
+    try {
+      return (await api.post<DtdcBookingResult>("/providers/dtdc/create-order", payload, { timeout: 60_000 })).data;
+    } catch (error) {
+      throw providerError(error, "DTDC shipment creation failed");
+    }
+  },
   cancelOrder: async (awb: string): Promise<DtdcCancellationResult> =>
     (await api.post<DtdcCancellationResult>("/providers/dtdc/cancel-order", { awb }, { timeout: 60_000 })).data,
 };

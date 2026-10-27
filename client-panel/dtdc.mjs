@@ -153,6 +153,10 @@ export async function callDtdc(request) {
           ...requireObject(item, request.operation),
           customer_code: config.customerCode,
           service_type_id: config.serviceTypeId,
+          // DTDC expects a commodity master ID, not an arbitrary product name.
+          // Use the official OTHERS code for generic products unless a numeric
+          // master ID (or an operator-configured default) is supplied.
+          commodity_id: dtdcCommodityId(item.commodity_id),
         })),
       });
       break;
@@ -243,6 +247,13 @@ function bookingConfig() {
 
 function bookingConfigured() {
   return Boolean(clean(process.env.DTDC_API_KEY) && clean(process.env.DTDC_CUSTOMER_CODE));
+}
+
+function dtdcCommodityId(value) {
+  const supplied = clean(value);
+  if (/^\d+$/.test(supplied)) return supplied;
+  const configured = clean(process.env.DTDC_DEFAULT_COMMODITY_ID);
+  return /^\d+$/.test(configured) ? configured : "7";
 }
 
 function trackingConfigured() {
