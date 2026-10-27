@@ -589,23 +589,27 @@ async function createDtdcOrder(data: CreateOrderPayload): Promise<Order> {
   if (!pickup) throw new Error("Selected pickup address could not be loaded for DTDC");
   const chargeableKg = Math.max(b2cChargeableKg(data.weight, data.length, data.breadth, data.height), 0.5);
   const firstInvoice = data.invoices?.[0];
+  const commodity = data.products.map((product) => product.name).filter(Boolean).join(", ").slice(0, 100) || "General Merchandise";
   const booking = await dtdcApi.createOrder({
     consignments: [{
       load_type: "NON-DOCUMENT",
       consignment_type: "Forward",
-      description: data.products.map((product) => product.name).join(", ").slice(0, 250),
-      dimension_unit: "cm",
+      description: commodity.slice(0, 250),
+      dimension_unit: "CM",
       length: String(data.length || 1),
       width: String(data.breadth || 1),
       height: String(data.height || 1),
-      weight_unit: "kg",
+      weight_unit: "KG",
       weight: String(chargeableKg),
       declared_value: String(round(data.orderAmount, 2)),
-      cod_collection_mode: data.paymentType === "cod" ? "cash" : "",
+      cod_collection_mode: data.paymentType === "cod" ? "CASH" : "",
       cod_amount: data.paymentType === "cod" ? String(round(data.codAmount, 2)) : "0",
       num_pieces: "1",
       invoice_number: firstInvoice?.invoiceNumber || data.orderId,
       customer_reference_number: data.orderId,
+      commodity_id: commodity,
+      is_risk_surcharge_applicable: false,
+      reference_number: "",
       origin_details: {
         name: String(pickup.contactName || pickup.nickname || "ShipSy Seller"),
         phone: String(pickup.phone || ""),
@@ -630,8 +634,8 @@ async function createDtdcOrder(data: CreateOrderPayload): Promise<Order> {
         address_line_1: String(pickup.addressLine1 || ""),
         address_line_2: String(pickup.addressLine2 || ""),
         pincode: String(pickup.pincode || ""),
-        city: String(pickup.city || ""),
-        state: String(pickup.state || ""),
+        city_name: String(pickup.city || ""),
+        state_name: String(pickup.state || ""),
       },
     }],
   });

@@ -52,19 +52,21 @@ export function registerDtdcRoutes(app, { requireSeller } = {}) {
       requireSeller?.(req);
       const result = await callDtdc({ operation: "createShipment", payload: req.body || {} });
       if (!result.ok) return res.status(result.status || 502).json(result);
-      const referenceNumber = deepString(result.data, ["reference_number", "customer_reference_number", "referenceNo"]);
-      // DTDC's Customer Softdata Upload API documents `reference_number` as
-      // the consignment identifier used by tracking, labels and cancellation.
-      // Some account responses therefore omit a separate AWB-named property.
-      const awb = deepString(result.data, ["awb_number", "awb_no", "awb", "waybill", "consignment_number"]) || referenceNumber;
-      if (!awb) {
-        const upstreamMessage = deepString(result.data, ["message", "reason", "remarks", "error_message", "errorMessage"]);
-        return res.status(502).json({
-          message: upstreamMessage || "DTDC did not return a consignment reference number",
+      const requestedCustomerReference = deepString(req.body, ["customer_reference_number"]);
+      const booking = parseDtdcBookingResponse(result.data, requestedCustomerReference);
+      if (!booking.success) {
+        return res.status(422).json({
+          message: booking.message,
           upstream: result.data,
         });
       }
-      return res.status(201).json({ success: true, awb, referenceNumber, environment: result.environment, upstream: result.data });
+      return res.status(201).json({
+        success: true,
+        awb: booking.awb,
+        referenceNumber: booking.referenceNumber,
+        environment: result.environment,
+        upstream: result.data,
+      });
     } catch (error) { next(error); }
   });
 
@@ -245,6 +247,47 @@ function bookingConfigured() {
 
 function trackingConfigured() {
   return Boolean(clean(process.env.DTDC_TRACKING_ACCESS_TOKEN) || (clean(process.env.DTDC_TRACKING_USERNAME) && clean(process.env.DTDC_TRACKING_PASSWORD)));
+}
+
+export function parseDtdcBookingResponse(body, requestedCustomerReference = "") {
+  const responseData = body && typeof body === "object" ? body.data : undefined;
+  const outcome = Array.isArray(responseData)
+    ? responseData[0]
+    : responseData && typeof responseData === "object"
+      ? responseData
+      : body;
+  const customerReference = directString(outcome, ["customer_reference_number"])
+    || clean(requestedCustomerReference);
+  const referenceNumber = directString(outcome, ["reference_number", "referenceNo"]);
+  const awb = directString(outcome, ["awb_number", "awb_no", "awb", "waybill", "consignment_number"])
+    || referenceNumber;
+  const providerAccepted = outcome && typeof outcome === "object" && outcome.success === true;
+
+  if (!providerAccepted) {
+    return {
+      success: false,
+      message: deepString(outcome, ["message", "reason", "remarks", "error_message", "errorMessage"])
+        || "DTDC rejected the consignment; no shipment was created",
+    };
+  }
+  if (!awb || (customerReference && awb.toLowerCase() === customerReference.toLowerCase())) {
+    return {
+      success: false,
+      message: "DTDC accepted the API request but did not create a consignment/AWB number",
+    };
+  }
+  return { success: true, awb, referenceNumber: referenceNumber || awb };
+}
+
+function directString(value, keys) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const wanted = new Set(keys.map((key) => key.toLowerCase()));
+  for (const [key, item] of Object.entries(value)) {
+    if (wanted.has(key.toLowerCase()) && item !== undefined && item !== null && String(item).trim()) {
+      return String(item).trim();
+    }
+  }
+  return "";
 }
 
 function deepString(value, keys) {
