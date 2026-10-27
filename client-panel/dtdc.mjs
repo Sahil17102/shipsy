@@ -55,6 +55,12 @@ export function registerDtdcRoutes(app, { requireSeller } = {}) {
       const requestedCustomerReference = deepString(req.body, ["customer_reference_number"]);
       const booking = parseDtdcBookingResponse(result.data, requestedCustomerReference);
       if (!booking.success) {
+        console.warn("DTDC booking rejected", {
+          customerReference: requestedCustomerReference || "unknown",
+          message: booking.message,
+          upstreamStatus: result.status,
+          environment: result.environment,
+        });
         return res.status(422).json({
           message: booking.message,
           upstream: result.data,
