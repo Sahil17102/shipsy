@@ -60,7 +60,7 @@ export function registerDtdcRoutes(app, { requireSeller } = {}) {
           message: booking.message,
           upstreamStatus: result.status,
           environment: result.environment,
-          diagnostics: redactDtdcDiagnostics(result.data),
+          diagnostics: JSON.stringify(redactDtdcDiagnostics(result.data)),
         });
         return res.status(422).json({
           message: booking.message,
