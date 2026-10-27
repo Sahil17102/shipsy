@@ -60,6 +60,7 @@ export function registerDtdcRoutes(app, { requireSeller } = {}) {
           message: booking.message,
           upstreamStatus: result.status,
           environment: result.environment,
+          diagnostics: redactDtdcDiagnostics(result.data),
         });
         return res.status(422).json({
           message: booking.message,
@@ -385,6 +386,20 @@ async function readResponse(response) {
 
 function clean(value) {
   return String(value || "").trim();
+}
+
+function redactDtdcDiagnostics(value, depth = 0) {
+  if (depth > 6) return "[truncated]";
+  if (Array.isArray(value)) return value.slice(0, 10).map((item) => redactDtdcDiagnostics(item, depth + 1));
+  if (!value || typeof value !== "object") {
+    return typeof value === "string" && value.length > 500 ? `${value.slice(0, 500)}…` : value;
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+    if (/(api.?key|token|password|customer.?code|phone|email|address|latitude|longitude|name)/i.test(key)) {
+      return [key, "[redacted]"];
+    }
+    return [key, redactDtdcDiagnostics(item, depth + 1)];
+  }));
 }
 
 function statusError(message, status) {
