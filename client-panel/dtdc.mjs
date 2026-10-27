@@ -281,9 +281,10 @@ export function parseDtdcBookingResponse(body, requestedCustomerReference = "") 
   const providerAccepted = outcome && typeof outcome === "object" && outcome.success === true;
 
   if (!providerAccepted) {
+    const specificReason = deepString(outcome, ["reason", "remarks", "error_message", "errorMessage", "detail", "details"]);
     return {
       success: false,
-      message: deepString(outcome, ["message", "reason", "remarks", "error_message", "errorMessage"])
+      message: specificReason || deepString(outcome, ["message"])
         || "DTDC rejected the consignment; no shipment was created",
     };
   }
