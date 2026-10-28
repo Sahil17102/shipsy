@@ -477,6 +477,11 @@ function toFshipCreateForwardPayload(
     })),
     courierId,
     courierName: data.courierName || getCourierDisplayName(data.courierId),
+    shipping_Charge: round(
+      toNumber(selectedRate.totalCharge ?? selectedRate.freightCharge ?? selectedRate.forward),
+      2,
+    ),
+    shipping_Zone: String(selectedRate.zone || ""),
   };
 }
 

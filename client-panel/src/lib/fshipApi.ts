@@ -211,6 +211,8 @@ export interface FshipCreateForwardOrderPayload {
   products: FshipProductPayload[];
   courierId: number | string;
   courierName?: string;
+  shipping_Charge?: number;
+  shipping_Zone?: string;
 }
 
 export interface FshipCreateForwardOrderResponse {

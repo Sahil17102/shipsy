@@ -616,6 +616,49 @@ app.post(deliveryPaths("updatewarehouse"), async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+function deliveryOrderRows(body) {
+  if (Array.isArray(body?.data)) return body.data;
+  if (Array.isArray(body?.data?.data)) return body.data.data;
+  if (Array.isArray(body?.orders)) return body.orders;
+  return [];
+}
+
+function deliveryOrderAwb(order) {
+  const awb = String(order?.awb || order?.waybill || order?.shipment?.awb || "").trim();
+  return awb && awb !== "-" ? awb : "";
+}
+
+async function findDeliveryOrder(referenceId) {
+  const response = await deliveryFetch(`orders?search=${encodeURIComponent(referenceId)}&paginate=false`, { method: "GET" });
+  const { body } = await readUpstream(response);
+  if (!response.ok || body?.success === false) return null;
+  return deliveryOrderRows(body).find((order) =>
+    String(order?.referenceId || "") === referenceId ||
+    String(order?.orderNumber || "") === referenceId,
+  ) || null;
+}
+
+function deliveryAssignmentMessage(body) {
+  const messages = [
+    body?.message,
+    ...(Array.isArray(body?.createshipment) ? body.createshipment.map((item) => item?.message) : []),
+  ];
+  return messages.find((message) => typeof message === "string" && message.trim())?.trim() || "";
+}
+
+function deliveryAssignmentAwb(body) {
+  const direct = String(
+    body?.awb || body?.waybill || body?.data?.awb || body?.data?.waybill ||
+    (Array.isArray(body?.createshipment)
+      ? body.createshipment.find((item) => item?.awb || item?.waybill)?.awb ||
+        body.createshipment.find((item) => item?.awb || item?.waybill)?.waybill
+      : "") || "",
+  ).trim();
+  if (direct && direct !== "-") return direct;
+  const match = deliveryAssignmentMessage(body).match(/\bAWB\s*[:#-]?\s*([A-Z0-9-]{6,})\b/i);
+  return match?.[1] || "";
+}
+
 app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
   try {
     const session = await getDeliverySession();
@@ -624,12 +667,19 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
     const orderAmount = Number(req.body?.order_Amount || req.body?.total_Amount || subtotal || 0);
     const requestedCourier = String(req.body?.courierName || "").trim();
     // Admin-priced fallback services are not LogixMitra courier identifiers.
-    // Leaving courier empty is supported upstream and lets it be assigned later.
+    // A real shipment must use a courier returned by the live rate endpoint.
     const genericCourierNames = new Set(["delivery", "delivery surface", "logixmitra", "logix mitra"]);
+    if (!requestedCourier || genericCourierNames.has(requestedCourier.toLowerCase())) {
+      return res.status(400).json({
+        status: false,
+        response: "Select a live LogixMitra courier rate before booking the shipment.",
+      });
+    }
+    const referenceId = String(req.body?.orderId || "").trim();
     const payload = {
       user_id: Number(session.userId),
-      referenceId: String(req.body?.orderId || ""),
-      orderNumber: String(req.body?.orderId || ""),
+      referenceId,
+      orderNumber: referenceId,
       orderDate: String(req.body?.orderDate || new Date().toISOString().slice(0, 10)),
       customerName: String(req.body?.customer_Name || ""),
       customerPhone: String(req.body?.customer_Mobile || "").replace(/\D/g, "").slice(-10),
@@ -650,7 +700,9 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
       currency: "INR",
       warehouse: Number(req.body?.pick_Address_ID),
       platform: "Custom",
-      courier: genericCourierNames.has(requestedCourier.toLowerCase()) ? "" : requestedCourier,
+      // Order creation and courier assignment are separate LogixMitra APIs.
+      // Keep the order pending here, then book the selected live rate below.
+      courier: "",
       items: products.map((product) => ({
         name: String(product?.productName || "Item"),
         sku: String(product?.sku || product?.productId || ""),
@@ -664,18 +716,77 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
         height: Number(req.body?.shipment_Height || 0),
       })),
     };
-    const response = await deliveryFetch("auth/manualcreateOrder", { method: "POST", body: JSON.stringify(payload) });
-    const { body } = await readUpstream(response);
-    if (!response.ok || body?.success === false) {
-      return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Order creation failed") });
+    const createResponse = await deliveryFetch("auth/manualcreateOrder", { method: "POST", body: JSON.stringify(payload) });
+    const { body: createBody } = await readUpstream(createResponse);
+    let providerOrder = createBody?.data || null;
+    if (!createResponse.ok || createBody?.success === false) {
+      const duplicate = createResponse.status === 409 || /duplicate|already exists/i.test(upstreamErrorMessage(createBody, ""));
+      if (!duplicate) {
+        return res.status(createResponse.status || 502).json({ status: false, response: upstreamErrorMessage(createBody, "Order creation failed") });
+      }
+      // A timeout after order creation must be safe to retry: recover the
+      // existing pending order instead of creating a second provider order.
+      providerOrder = await findDeliveryOrder(referenceId);
+      if (!providerOrder) {
+        return res.status(409).json({ status: false, response: "LogixMitra order already exists but could not be recovered for courier assignment." });
+      }
     }
-    const awb = String(body?.data?.awb || "").trim();
-    return res.status(response.status).json({
+
+    const existingAwb = deliveryOrderAwb(providerOrder);
+    if (existingAwb) {
+      return res.json({
+        status: true,
+        response: "Existing LogixMitra shipment recovered",
+        apiorderid: providerOrder?.id,
+        waybill: existingAwb,
+        order_status: providerOrder?.status,
+      });
+    }
+
+    const shippingRate = Number(req.body?.shipping_Charge || 0);
+    if (!(shippingRate > 0)) {
+      return res.status(400).json({ status: false, response: "The selected LogixMitra courier rate is missing or invalid." });
+    }
+    const providerReferenceId = String(providerOrder?.referenceId || referenceId);
+    const assignmentPayload = {
+      user_id: Number(session.userId),
+      data: {
+        orderlist: [{
+          ...providerOrder,
+          referenceId: providerReferenceId,
+          seller: Number(providerOrder?.seller || providerOrder?.user_id || session.userId),
+          platform: String(providerOrder?.platform || "Custom"),
+          amount: String(providerOrder?.amount || orderAmount),
+          status: String(providerOrder?.status || "Pending"),
+        }],
+        coureir: [0],
+        ratelist: {
+          [providerReferenceId]: { rate: [shippingRate], type: [requestedCourier] },
+        },
+        warehouselist: [Number(req.body?.pick_Address_ID)],
+        dispatchdate: { [providerReferenceId]: String(req.body?.orderDate || new Date().toISOString().slice(0, 10)) },
+        zone: [String(req.body?.shipping_Zone || "")],
+      },
+    };
+    const assignResponse = await deliveryFetch("orders/bulkshipmentcreate", {
+      method: "PUT",
+      body: JSON.stringify(assignmentPayload),
+    }, false);
+    const { body: assignBody } = await readUpstream(assignResponse);
+    const assignmentMessage = deliveryAssignmentMessage(assignBody);
+    const awb = deliveryAssignmentAwb(assignBody);
+    if (!assignResponse.ok || assignBody?.status === false || !awb) {
+      return res.status(assignResponse.ok ? 502 : assignResponse.status).json({
+        status: false,
+        response: upstreamErrorMessage(assignBody, assignmentMessage || "Courier assignment did not return an AWB"),
+      });
+    }
+    return res.status(assignResponse.status).json({
       status: true,
-      response: body?.message,
-      apiorderid: body?.data?.id,
-      waybill: awb === "-" ? "" : awb,
-      order_status: body?.data?.status,
+      response: assignmentMessage || "Shipment created successfully",
+      apiorderid: providerOrder?.id,
+      waybill: awb,
+      order_status: "Ready for Dispatch",
     });
   } catch (error) { next(error); }
 });
