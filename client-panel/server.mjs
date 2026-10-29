@@ -516,37 +516,82 @@ app.get(deliveryPaths("getallcourier"), (_req, res) => {
   res.json([]);
 });
 
+function deliverySlabWeight(value, fallback = 0.5) {
+  const match = String(value || "").match(/per\s+(\d*\.?\d+)\s*kg/i);
+  const parsed = Number(match?.[1]);
+  return parsed > 0 ? parsed : fallback;
+}
+
+function deliveryCodCharge(value, invoiceValue) {
+  const [flatText, percentText] = String(value || "").split("|");
+  const flat = Number(String(flatText || "").replace(/[^0-9.]/g, "")) || 0;
+  const percent = Number(String(percentText || "").replace(/[^0-9.]/g, "")) || 0;
+  return Math.max(flat, (Number(invoiceValue || 0) * percent) / 100);
+}
+
+async function deliveryBookingOptions({ userId, weight, paymentMode, invoiceValue, zone }) {
+  const response = await deliveryFetch(`users/${encodeURIComponent(userId)}`, { method: "GET" });
+  const { body } = await readUpstream(response);
+  const user = body?.data || body?.user || body;
+  const chart = Array.isArray(user?.ratechart) ? user.ratechart : [];
+  if (!response.ok || chart.length < 3) {
+    throw Object.assign(new Error(upstreamErrorMessage(body, "LogixMitra rate chart is unavailable")), { status: response.status || 502 });
+  }
+
+  const zoneText = String(zone || "").toUpperCase();
+  const zoneMatch = zoneText.match(/\bZONE\s*([A-E])\b|^([A-E])$/);
+  const zoneLetter = zoneMatch?.[1] || zoneMatch?.[2] || String(process.env.DELIVERY_DEFAULT_ZONE || "B").toUpperCase();
+  const zoneIndex = { A: 2, B: 3, C: 4, D: 5, E: 6 }[zoneLetter];
+  const chargeableWeight = Math.max(Number(weight || 0), 0.5);
+  const isCod = String(paymentMode || "").toUpperCase() === "COD";
+  const candidates = [];
+
+  for (let index = 2; index < chart.length; index += 1) {
+    const row = chart[index];
+    if (!Array.isArray(row) || !String(row[0] || "").trim()) continue;
+    const additional = Array.isArray(chart[index + 1]) && !chart[index + 1][0] ? chart[index + 1] : null;
+    const baseWeight = deliverySlabWeight(row[1]);
+    const additionalWeight = deliverySlabWeight(additional?.[1]);
+    const baseRate = Number(row[zoneIndex] || 0);
+    const additionalRate = Number(additional?.[zoneIndex] || 0);
+    if (!(baseRate > 0)) continue;
+    const extraUnits = chargeableWeight > baseWeight
+      ? Math.ceil((chargeableWeight - baseWeight - Number.EPSILON) / additionalWeight)
+      : 0;
+    const freight = baseRate + (extraUnits * additionalRate);
+    const cod = isCod ? deliveryCodCharge(row[7], invoiceValue) : 0;
+    candidates.push({
+      label: String(row[0]).trim(),
+      provider: String(row[0]).trim().split(/\s+/)[0],
+      rate: Math.round((freight + cod) * 1.18 * 100) / 100,
+    });
+  }
+
+  const air = candidates.filter((option) => /\bair\b/i.test(option.label)).sort((a, b) => a.rate - b.rate)[0];
+  const surface = candidates.filter((option) => /\bsurface\b/i.test(option.label)).sort((a, b) => a.rate - b.rate)[0];
+  const options = [air, surface].filter(Boolean);
+  if (!options.length) throw Object.assign(new Error("No bookable LogixMitra rate was found in the seller rate chart"), { status: 502 });
+  return options;
+}
+
 app.post(deliveryPaths("ratecalculator"), async (req, res, next) => {
   try {
-    const payload = {
-      shipmentType: "FORWARD",
-      packageType: "SPS",
-      originPincode: String(req.body?.source_Pincode || ""),
-      deliveryPincode: String(req.body?.destination_Pincode || ""),
-      paymentMode: String(req.body?.payment_Mode || "").toUpperCase() === "COD" ? "COD" : "PREPAID",
-      weight: Number(req.body?.shipment_Weight || 0),
-      invoiceValue: Number(req.body?.amount || 0),
-      dimensions: {
-        length: Number(req.body?.shipment_Length || 0),
-        width: Number(req.body?.shipment_Width || 0),
-        height: Number(req.body?.shipment_Height || 0),
-      },
-      serviceType: "domestic",
-    };
-    const response = await deliveryFetch("integrations/ratecalculate", { method: "POST", body: JSON.stringify(payload) }, false);
-    const { body } = await readUpstream(response);
-    if (!response.ok || body?.success === false) {
-      return res.status(response.status || 502).json({ status: false, response: upstreamErrorMessage(body, "Live rate calculation failed") });
-    }
-    const rates = Array.isArray(body?.data) ? body.data : [];
+    const session = await getDeliverySession();
+    const options = await deliveryBookingOptions({
+      userId: session.userId,
+      weight: req.body?.shipment_Weight,
+      paymentMode: req.body?.payment_Mode,
+      invoiceValue: req.body?.amount,
+      zone: req.body?.shipping_Zone,
+    });
     return res.json({
       status: true,
-      shipment_rates: rates.map((rate) => ({
-        courier_name: String(rate?.type || "Shipping Partner"),
-        shipping_charge: Number(rate?.rates || 0),
+      shipment_rates: options.map((option) => ({
+        courier_name: option.label,
+        shipping_charge: option.rate,
         cod_charge: 0,
-        rto_charge: 0,
-        service_mode: "surface",
+        rto_charge: option.rate,
+        service_mode: /air/i.test(option.label) ? "air" : "surface",
       })),
     });
   } catch (error) { next(error); }
@@ -677,26 +722,9 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
     const subtotal = products.reduce((sum, product) => sum + (Number(product?.unitPrice || 0) * Number(product?.quantity || 0)), 0);
     const orderAmount = Number(req.body?.order_Amount || req.body?.total_Amount || subtotal || 0);
     const selectedCourier = String(req.body?.courierName || "").trim();
-    // LogixMitra's public rate endpoint can be unavailable even while its
-    // courier-booking endpoint is healthy.  In that case ShipSy still shows
-    // the admin-priced "Delivery Surface" service.  Map that generic service
-    // to the account's configured booking courier so a seller does not have
-    // to open LogixMitra and assign the same shipment manually.
-    const genericCourierNames = new Set(["delivery", "delivery surface", "logixmitra", "logix mitra"]);
-    const fallbackCourier = String(process.env.DELIVERY_DEFAULT_COURIER || "Delhivery").trim();
-    const requestedCourier = !selectedCourier || genericCourierNames.has(selectedCourier.toLowerCase())
-      ? fallbackCourier
-      : selectedCourier;
-    if (!requestedCourier) {
-      return res.status(400).json({
-        status: false,
-        response: "No LogixMitra booking courier is configured. Set DELIVERY_DEFAULT_COURIER on the ShipSy API server.",
-      });
-    }
     const referenceId = String(req.body?.orderId || "").trim();
     const payload = {
       user_id: Number(session.userId),
-      referenceId,
       orderNumber: referenceId,
       orderDate: String(req.body?.orderDate || new Date().toISOString().slice(0, 10)),
       customerName: String(req.body?.customer_Name || ""),
@@ -717,7 +745,10 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
       totalDiscounts: products.reduce((sum, product) => sum + Number(product?.productDiscount || 0), 0),
       currency: "INR",
       warehouse: Number(req.body?.pick_Address_ID),
-      platform: "Custom",
+      // Let LogixMitra generate its REF-* shipment reference. Its booking
+      // handler rejects externally supplied references even though order
+      // creation accepts them. Keep the ShipSy id as the order number.
+      platform: "Manual",
       // Order creation and courier assignment are separate LogixMitra APIs.
       // Keep the order pending here, then book the selected live rate below.
       courier: "",
@@ -773,10 +804,17 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
       });
     }
 
-    const shippingRate = Number(req.body?.shipping_Charge || 0);
-    if (!(shippingRate > 0)) {
-      return res.status(400).json({ status: false, response: "The selected LogixMitra courier rate is missing or invalid." });
-    }
+    const bookingOptions = await deliveryBookingOptions({
+      userId: session.userId,
+      weight: req.body?.shipment_Weight,
+      paymentMode: Number(req.body?.payment_Mode) === 1 ? "COD" : "PREPAID",
+      invoiceValue: orderAmount,
+      zone: req.body?.shipping_Zone,
+    });
+    const wantsAir = /\bair\b/i.test(selectedCourier);
+    const selectedIndex = Math.max(0, bookingOptions.findIndex((option) =>
+      wantsAir ? /\bair\b/i.test(option.label) : /\bsurface\b/i.test(option.label),
+    ));
     const providerReferenceId = String(providerOrder?.referenceId || referenceId);
     const assignmentPayload = {
       user_id: Number(session.userId),
@@ -784,14 +822,17 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
         orderlist: [{
           ...providerOrder,
           referenceId: providerReferenceId,
-          seller: Number(providerOrder?.seller || providerOrder?.user_id || session.userId),
-          platform: String(providerOrder?.platform || "Custom"),
+          seller: String(providerOrder?.seller || providerOrder?.user_id || session.userId),
+          platform: String(providerOrder?.platform || "Manual"),
           amount: String(providerOrder?.amount || orderAmount),
           status: String(providerOrder?.status || "Pending"),
         }],
-        coureir: [0],
+        coureir: [selectedIndex],
         ratelist: {
-          [providerReferenceId]: { rate: [shippingRate], type: [requestedCourier] },
+          [providerReferenceId]: {
+            rate: bookingOptions.map((option) => option.rate),
+            type: bookingOptions.map((option) => option.provider),
+          },
         },
         warehouselist: [Number(req.body?.pick_Address_ID)],
         dispatchdate: { [providerReferenceId]: String(req.body?.orderDate || new Date().toISOString().slice(0, 10)) },
@@ -801,10 +842,17 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
     const assignResponse = await deliveryFetch("orders/bulkshipmentcreate", {
       method: "PUT",
       body: JSON.stringify(assignmentPayload),
-    }, false);
+    });
     const { body: assignBody } = await readUpstream(assignResponse);
     const assignmentMessage = deliveryAssignmentMessage(assignBody);
-    const awb = deliveryAssignmentAwb(assignBody);
+    let awb = deliveryAssignmentAwb(assignBody);
+    if (assignResponse.ok && assignBody?.status !== false && !awb) {
+      // Successful LogixMitra responses do not always include the AWB. Read
+      // the now-booked order back before reporting success to ShipSy.
+      const assignedOrder = await findDeliveryOrder(referenceId, 4);
+      awb = deliveryOrderAwb(assignedOrder);
+      if (assignedOrder) providerOrder = assignedOrder;
+    }
     if (!assignResponse.ok || assignBody?.status === false || !awb) {
       return res.status(assignResponse.ok ? 502 : assignResponse.status).json({
         status: false,
