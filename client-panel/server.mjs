@@ -665,14 +665,21 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
     const products = Array.isArray(req.body?.products) ? req.body.products : [];
     const subtotal = products.reduce((sum, product) => sum + (Number(product?.unitPrice || 0) * Number(product?.quantity || 0)), 0);
     const orderAmount = Number(req.body?.order_Amount || req.body?.total_Amount || subtotal || 0);
-    const requestedCourier = String(req.body?.courierName || "").trim();
-    // Admin-priced fallback services are not LogixMitra courier identifiers.
-    // A real shipment must use a courier returned by the live rate endpoint.
+    const selectedCourier = String(req.body?.courierName || "").trim();
+    // LogixMitra's public rate endpoint can be unavailable even while its
+    // courier-booking endpoint is healthy.  In that case ShipSy still shows
+    // the admin-priced "Delivery Surface" service.  Map that generic service
+    // to the account's configured booking courier so a seller does not have
+    // to open LogixMitra and assign the same shipment manually.
     const genericCourierNames = new Set(["delivery", "delivery surface", "logixmitra", "logix mitra"]);
-    if (!requestedCourier || genericCourierNames.has(requestedCourier.toLowerCase())) {
+    const fallbackCourier = String(process.env.DELIVERY_DEFAULT_COURIER || "Delhivery").trim();
+    const requestedCourier = !selectedCourier || genericCourierNames.has(selectedCourier.toLowerCase())
+      ? fallbackCourier
+      : selectedCourier;
+    if (!requestedCourier) {
       return res.status(400).json({
         status: false,
-        response: "Select a live LogixMitra courier rate before booking the shipment.",
+        response: "No LogixMitra booking courier is configured. Set DELIVERY_DEFAULT_COURIER on the ShipSy API server.",
       });
     }
     const referenceId = String(req.body?.orderId || "").trim();

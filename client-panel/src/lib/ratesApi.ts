@@ -275,14 +275,18 @@ function codCharge(paymentType: "prepaid" | "cod", orderAmount = 0): number {
   return Math.max(35, round(orderAmount * 0.02));
 }
 
-function markUnquotedDeliveryUnavailable<T extends { serviceProvider: string }>(
+function markAdminDeliveryBookable<T extends { serviceProvider: string }>(
   courier: T,
 ): T & Pick<AvailableCourier, "bookingReady" | "unavailableReason"> {
   if (!isDeliveryServiceProvider(courier.serviceProvider)) return courier;
   return {
     ...courier,
-    bookingReady: false,
-    unavailableReason: "No live LogixMitra rate is available for this shipment. Refresh rates or choose another courier.",
+    // The API server maps the generic admin-priced Delivery service to the
+    // LogixMitra account's configured default courier.  This keeps booking
+    // available when LogixMitra's public live-rate endpoint is temporarily
+    // down, while a live quote (when present) still carries its own name.
+    bookingReady: true,
+    unavailableReason: undefined,
   };
 }
 
@@ -349,7 +353,7 @@ function makeFallbackB2cRates(params: AvailableCouriersParams, shared: SharedCou
       },
       tag: index === 1 ? "economy" : undefined,
     };
-  }).map((courier) => markUnquotedDeliveryUnavailable(courier));
+  }).map((courier) => markAdminDeliveryBookable(courier));
 }
 
 function makeFallbackB2bRates(params: B2bAvailableCouriersParams, shared: SharedCourier[] = []): B2bAvailableCourier[] {
@@ -400,7 +404,7 @@ function makeFallbackB2bRates(params: B2bAvailableCouriersParams, shared: Shared
       },
       tag: index === 0 ? "economy" : undefined,
     };
-  }).map((courier) => markUnquotedDeliveryUnavailable(courier));
+  }).map((courier) => markAdminDeliveryBookable(courier));
 }
 
 async function enrichShippingRates(
@@ -805,7 +809,7 @@ export const ratesApi = {
     const liveRates = uniqueRates([
       ...courierRates,
       ...connectedRates,
-      ...platformRates.map((courier) => markUnquotedDeliveryUnavailable(courier)),
+      ...platformRates.map((courier) => markAdminDeliveryBookable(courier)),
       ...dtdcRates,
     ]);
     const fallbackRates = makeFallbackB2cRates(params, sharedCouriers);
@@ -843,7 +847,7 @@ export const ratesApi = {
           .map((courier) => courier.courierId.toLowerCase()));
         const adminRates = data.data.map((courier) =>
           isDeliveryServiceProvider(courier.serviceProvider) && !liveDeliveryIds.has(courier.courierId.toLowerCase())
-            ? markUnquotedDeliveryUnavailable(courier)
+            ? markAdminDeliveryBookable(courier)
             : courier,
         );
         return applyFshipB2bTestPricing(uniqueRates([...courierRates, ...fshipRates, ...adminRates]));
