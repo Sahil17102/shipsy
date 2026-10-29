@@ -617,6 +617,9 @@ app.post(deliveryPaths("updatewarehouse"), async (req, res, next) => {
 });
 
 function deliveryOrderRows(body) {
+  // LogixMitra currently returns a bare array for `GET /orders` when
+  // `paginate=false`; older deployments wrapped the same rows in `data`.
+  if (Array.isArray(body)) return body;
   if (Array.isArray(body?.data)) return body.data;
   if (Array.isArray(body?.data?.data)) return body.data.data;
   if (Array.isArray(body?.orders)) return body.orders;
@@ -628,14 +631,22 @@ function deliveryOrderAwb(order) {
   return awb && awb !== "-" ? awb : "";
 }
 
-async function findDeliveryOrder(referenceId) {
-  const response = await deliveryFetch(`orders?search=${encodeURIComponent(referenceId)}&paginate=false`, { method: "GET" });
-  const { body } = await readUpstream(response);
-  if (!response.ok || body?.success === false) return null;
-  return deliveryOrderRows(body).find((order) =>
-    String(order?.referenceId || "") === referenceId ||
-    String(order?.orderNumber || "") === referenceId,
-  ) || null;
+async function findDeliveryOrder(referenceId, attempts = 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const response = await deliveryFetch(`orders?search=${encodeURIComponent(referenceId)}&paginate=false`, { method: "GET" });
+    const { body } = await readUpstream(response);
+    if (response.ok && body?.success !== false) {
+      const order = deliveryOrderRows(body).find((row) =>
+        String(row?.referenceId || "") === referenceId ||
+        String(row?.orderNumber || "") === referenceId,
+      );
+      if (order) return order;
+    }
+    if (attempt + 1 < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  return null;
 }
 
 function deliveryAssignmentMessage(body) {
@@ -736,6 +747,18 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
       providerOrder = await findDeliveryOrder(referenceId);
       if (!providerOrder) {
         return res.status(409).json({ status: false, response: "LogixMitra order already exists but could not be recovered for courier assignment." });
+      }
+    } else {
+      // `manualcreateOrder` returns only a compact acknowledgement. The
+      // assignment endpoint expects the complete persisted order record (the
+      // same object used by LogixMitra's Assign Courier screen), so fetch it
+      // before booking instead of forwarding the compact create response.
+      providerOrder = await findDeliveryOrder(referenceId, 3);
+      if (!providerOrder) {
+        return res.status(502).json({
+          status: false,
+          response: "LogixMitra order was created but its complete record is not ready yet. Please retry booking; a duplicate order will not be created.",
+        });
       }
     }
 
