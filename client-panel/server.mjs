@@ -681,10 +681,11 @@ async function findDeliveryOrder(referenceId, attempts = 1) {
     const response = await deliveryFetch(`orders?search=${encodeURIComponent(referenceId)}&paginate=false`, { method: "GET" });
     const { body } = await readUpstream(response);
     if (response.ok && body?.success !== false) {
-      const order = deliveryOrderRows(body).find((row) =>
+      const matches = deliveryOrderRows(body).filter((row) =>
         String(row?.referenceId || "") === referenceId ||
         String(row?.orderNumber || "") === referenceId,
       );
+      const order = matches.find((row) => deliveryOrderAwb(row) && !/cancel/i.test(String(row?.status || ""))) || matches[0];
       if (order) return order;
     }
     if (attempt + 1 < attempts) {
@@ -765,31 +766,32 @@ app.post(deliveryPaths("createforwardorder"), async (req, res, next) => {
         height: Number(req.body?.shipment_Height || 0),
       })),
     };
-    const createResponse = await deliveryFetch("auth/manualcreateOrder", { method: "POST", body: JSON.stringify(payload) });
-    const { body: createBody } = await readUpstream(createResponse);
-    let providerOrder = createBody?.data || null;
-    if (!createResponse.ok || createBody?.success === false) {
-      const duplicate = createResponse.status === 409 || /duplicate|already exists/i.test(upstreamErrorMessage(createBody, ""));
-      if (!duplicate) {
-        return res.status(createResponse.status || 502).json({ status: false, response: upstreamErrorMessage(createBody, "Order creation failed") });
-      }
-      // A timeout after order creation must be safe to retry: recover the
-      // existing pending order instead of creating a second provider order.
-      providerOrder = await findDeliveryOrder(referenceId);
-      if (!providerOrder) {
-        return res.status(409).json({ status: false, response: "LogixMitra order already exists but could not be recovered for courier assignment." });
-      }
-    } else {
-      // `manualcreateOrder` returns only a compact acknowledgement. The
-      // assignment endpoint expects the complete persisted order record (the
-      // same object used by LogixMitra's Assign Courier screen), so fetch it
-      // before booking instead of forwarding the compact create response.
-      providerOrder = await findDeliveryOrder(referenceId, 3);
-      if (!providerOrder) {
-        return res.status(502).json({
-          status: false,
-          response: "LogixMitra order was created but its complete record is not ready yet. Please retry booking; a duplicate order will not be created.",
-        });
+    // LogixMitra currently allows duplicate orderNumber values, so checking
+    // only for a 409 from manualcreateOrder is not idempotent. Recover first.
+    let providerOrder = await findDeliveryOrder(referenceId);
+    if (!providerOrder) {
+      const createResponse = await deliveryFetch("auth/manualcreateOrder", { method: "POST", body: JSON.stringify(payload) });
+      const { body: createBody } = await readUpstream(createResponse);
+      providerOrder = createBody?.data || null;
+      if (!createResponse.ok || createBody?.success === false) {
+        const duplicate = createResponse.status === 409 || /duplicate|already exists/i.test(upstreamErrorMessage(createBody, ""));
+        if (!duplicate) {
+          return res.status(createResponse.status || 502).json({ status: false, response: upstreamErrorMessage(createBody, "Order creation failed") });
+        }
+        providerOrder = await findDeliveryOrder(referenceId);
+        if (!providerOrder) {
+          return res.status(409).json({ status: false, response: "LogixMitra order already exists but could not be recovered for courier assignment." });
+        }
+      } else {
+        // `manualcreateOrder` returns only a compact acknowledgement. The
+        // assignment endpoint expects the complete persisted order record.
+        providerOrder = await findDeliveryOrder(referenceId, 3);
+        if (!providerOrder) {
+          return res.status(502).json({
+            status: false,
+            response: "LogixMitra order was created but its complete record is not ready yet. Please retry booking; a duplicate order will not be created.",
+          });
+        }
       }
     }
 
