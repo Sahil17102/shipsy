@@ -1090,6 +1090,9 @@ export const ordersApi = {
   },
 
   create: async (data: CreateOrderPayload): Promise<Order> => {
+    if (data.bookingReady === false) {
+      throw new Error(data.unavailableReason || "The selected courier has no live rate and cannot be booked.");
+    }
     const shippingCharge = Math.round(Number(data.rate?.totalCharge || data.rate?.freightCharge || data.rate?.forward || 0) * 100) / 100;
     const provider = data.serviceProvider || data.courierName || "courier";
     await walletApi.debitOrder(shippingCharge, data.orderId, provider);

@@ -62,9 +62,13 @@ export default function DraftShippingModal({
 
   const globalOptions = useMemo(() => {
     if (drafts.length === 0 || drafts.some((draft) => !(ratesByDraft[draft.id]?.length > 0))) return [];
-    const common = new Set(ratesByDraft[drafts[0].id].map((courier) => courier.serviceProvider));
+    const common = new Set(ratesByDraft[drafts[0].id]
+      .filter((courier) => courier.bookingReady !== false)
+      .map((courier) => courier.serviceProvider));
     drafts.slice(1).forEach((draft) => {
-      const providers = new Set(ratesByDraft[draft.id].map((courier) => courier.serviceProvider));
+      const providers = new Set(ratesByDraft[draft.id]
+        .filter((courier) => courier.bookingReady !== false)
+        .map((courier) => courier.serviceProvider));
       [...common].forEach((provider) => { if (!providers.has(provider)) common.delete(provider); });
     });
     return [...common].map((provider) => {
@@ -81,9 +85,10 @@ export default function DraftShippingModal({
     })));
   }
 
-  const allSelected = drafts.length > 0 && drafts.every((draft) =>
-    Boolean(selections[draft.id]) && !errors[draft.id],
-  );
+  const allSelected = drafts.length > 0 && drafts.every((draft) => {
+    const selected = (ratesByDraft[draft.id] ?? []).find((courier) => courier.courierId === selections[draft.id]);
+    return Boolean(selected) && selected?.bookingReady !== false && !errors[draft.id];
+  });
 
   async function shipDrafts() {
     if (!allSelected || shipping) return;
@@ -92,7 +97,7 @@ export default function DraftShippingModal({
     const failures: string[] = [];
     for (const draft of drafts) {
       const courier = (ratesByDraft[draft.id] ?? []).find((item) => item.courierId === selections[draft.id]);
-      if (!courier) {
+      if (!courier || courier.bookingReady === false) {
         failures.push(`${draft.orderId}: courier selection missing`);
         continue;
       }
@@ -182,7 +187,11 @@ export default function DraftShippingModal({
                         }}
                         options={rates.map((courier) => ({
                           value: courier.courierId,
-                          label: `${courier.name} · ${formatCurrency(courier.rate.totalCharge)}`,
+                          label: courier.bookingReady === false
+                            ? `${courier.name} · Live rate unavailable`
+                            : `${courier.name} · ${formatCurrency(courier.rate.totalCharge)}`,
+                          disabled: courier.bookingReady === false,
+                          title: courier.unavailableReason,
                         }))}
                       />
                     )}

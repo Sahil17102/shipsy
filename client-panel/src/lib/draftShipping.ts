@@ -47,6 +47,8 @@ export async function getDraftCouriers(
         totalCharge: courier.rate.total,
       },
       tag: courier.tag,
+      bookingReady: courier.bookingReady,
+      unavailableReason: courier.unavailableReason,
       _b2bRate: courier.rate,
     }));
   }
@@ -66,6 +68,6 @@ export async function getDraftCouriers(
 
 export function cheapestCourierForProvider(couriers: AvailableCourier[], provider: string) {
   return couriers
-    .filter((courier) => courier.serviceProvider === provider)
+    .filter((courier) => courier.serviceProvider === provider && courier.bookingReady !== false)
     .sort((left, right) => left.rate.totalCharge - right.rate.totalCharge)[0];
 }

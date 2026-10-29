@@ -9,6 +9,7 @@ import {
   deliveryApi,
   fshipApi,
   isFshipApiConfigured,
+  isDeliveryServiceProvider,
   isFshipServiceProvider,
   shouldUseFshipApi,
   type FshipShipmentRate,
@@ -145,6 +146,8 @@ export interface B2bAvailableCourier {
   }>;
   rate: B2bCourierRate;
   tag?: "economy" | "fastest";
+  bookingReady?: boolean;
+  unavailableReason?: string;
 }
 
 export interface B2bAvailableCouriersParams {
@@ -272,6 +275,17 @@ function codCharge(paymentType: "prepaid" | "cod", orderAmount = 0): number {
   return Math.max(35, round(orderAmount * 0.02));
 }
 
+function markUnquotedDeliveryUnavailable<T extends { serviceProvider: string }>(
+  courier: T,
+): T & Pick<AvailableCourier, "bookingReady" | "unavailableReason"> {
+  if (!isDeliveryServiceProvider(courier.serviceProvider)) return courier;
+  return {
+    ...courier,
+    bookingReady: false,
+    unavailableReason: "No live LogixMitra rate is available for this shipment. Refresh rates or choose another courier.",
+  };
+}
+
 interface SharedCourier {
   id: string;
   name: string;
@@ -311,7 +325,7 @@ function makeFallbackB2cRates(params: AvailableCouriersParams, shared: SharedCou
     rtoPerSlab: Math.max(36, 48 - index * 2),
   }));
 
-  return options.map((option, index) => {
+  return options.map<AvailableCourier>((option, index) => {
     const freight = round(option.freightPerSlab * slabs);
     const gst = round((freight + cod) * 0.18);
     const total = round(freight + cod + gst);
@@ -335,7 +349,7 @@ function makeFallbackB2cRates(params: AvailableCouriersParams, shared: SharedCou
       },
       tag: index === 1 ? "economy" : undefined,
     };
-  });
+  }).map((courier) => markUnquotedDeliveryUnavailable(courier));
 }
 
 function makeFallbackB2bRates(params: B2bAvailableCouriersParams, shared: SharedCourier[] = []): B2bAvailableCourier[] {
@@ -356,7 +370,7 @@ function makeFallbackB2bRates(params: B2bAvailableCouriersParams, shared: Shared
     { id: "fship:b2b-surface", name: "FShip B2B Surface", serviceProvider: "fship", serviceProviderDisplayName: "FShip" },
     { id: "logixmitra:b2b-surface", name: "Delivery B2B Surface", serviceProvider: "logixmitra", serviceProviderDisplayName: "Delivery" },
   ];
-  return (shared.length > 0 ? shared : defaults).map((option, index) => {
+  return (shared.length > 0 ? shared : defaults).map<B2bAvailableCourier>((option, index) => {
     const adjustedFreight = round(baseFreight * (1 + index * 0.04));
     return {
       courierId: option.id,
@@ -386,7 +400,7 @@ function makeFallbackB2bRates(params: B2bAvailableCouriersParams, shared: Shared
       },
       tag: index === 0 ? "economy" : undefined,
     };
-  });
+  }).map((courier) => markUnquotedDeliveryUnavailable(courier));
 }
 
 async function enrichShippingRates(
@@ -788,7 +802,12 @@ export const ratesApi = {
         .catch(() => []),
       getDtdcRate(params).catch(() => []),
     ]);
-    const liveRates = uniqueRates([...courierRates, ...connectedRates, ...platformRates, ...dtdcRates]);
+    const liveRates = uniqueRates([
+      ...courierRates,
+      ...connectedRates,
+      ...platformRates.map((courier) => markUnquotedDeliveryUnavailable(courier)),
+      ...dtdcRates,
+    ]);
     const fallbackRates = makeFallbackB2cRates(params, sharedCouriers);
     const seen = new Set(liveRates.map((item) => `${item.serviceProvider}:${item.courierId}`.toLowerCase()));
     return mergeIndiaPostRates([
@@ -819,7 +838,15 @@ export const ratesApi = {
       );
       if (Array.isArray(data.data) && data.data.length > 0) {
         const fshipRates = isFshipApiConfigured() ? await getConnectedProviderB2bRates(params).catch(() => []) : [];
-        return applyFshipB2bTestPricing(uniqueRates([...courierRates, ...data.data, ...fshipRates]));
+        const liveDeliveryIds = new Set(fshipRates
+          .filter((courier) => isDeliveryServiceProvider(courier.serviceProvider))
+          .map((courier) => courier.courierId.toLowerCase()));
+        const adminRates = data.data.map((courier) =>
+          isDeliveryServiceProvider(courier.serviceProvider) && !liveDeliveryIds.has(courier.courierId.toLowerCase())
+            ? markUnquotedDeliveryUnavailable(courier)
+            : courier,
+        );
+        return applyFshipB2bTestPricing(uniqueRates([...courierRates, ...fshipRates, ...adminRates]));
       }
     } catch {
       // Fall through to the explicitly marked fallback below if the API is unavailable.

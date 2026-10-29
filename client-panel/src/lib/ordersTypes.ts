@@ -178,6 +178,8 @@ export interface CreateOrderPayload {
   courierId: string;
   courierName?: string;
   serviceProvider?: string;
+  bookingReady?: boolean;
+  unavailableReason?: string;
   pickupAddressId: string;
   preferredPickupDate: string;
   preferredPickupTime?: string;

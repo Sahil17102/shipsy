@@ -169,8 +169,8 @@ function CourierRow({
 }) {
   const tag = courier.tag ? tagConfig[courier.tag] : null;
   const isExpress = courier.mode === "air";
-  const hasBreakdown = getRateLineItems(courier).length > 0;
   const isUnavailable = courier.bookingReady === false;
+  const hasBreakdown = !isUnavailable && getRateLineItems(courier).length > 0;
 
   return (
     <motion.div
@@ -245,7 +245,7 @@ function CourierRow({
         <p className="text-[11px] text-tertiary mt-px truncate">
           {courier.serviceProviderDisplayName}
         </p>
-        {isUnavailable && <p className="text-[10px] text-amber-600 mt-0.5 truncate">Setup required for real booking</p>}
+        {isUnavailable && <p className="text-[10px] text-amber-600 mt-0.5 truncate">{courier.unavailableReason || "Live rate unavailable"}</p>}
       </div>
 
       {/* Tag */}
@@ -301,11 +301,11 @@ function CourierRow({
               isSelected ? "text-primary" : "text-foreground"
             }`}
           >
-            {formatCurrency(courier.rate.totalCharge)}
+            {isUnavailable ? "Unavailable" : formatCurrency(courier.rate.totalCharge)}
           </p>
-          <p className="text-[9px] text-tertiary mt-1 uppercase tracking-wider font-semibold">
+          {!isUnavailable && <p className="text-[9px] text-tertiary mt-1 uppercase tracking-wider font-semibold">
             {courier.rate.codCharges > 0 ? "COD" : "Prepaid"}
-          </p>
+          </p>}
         </div>
       </div>
     </motion.button>
@@ -423,6 +423,8 @@ export function CourierSelectionSection({ onCouriersLoaded }: CourierSelectionSe
             totalCharge: c.rate.total,
           },
           tag: c.tag,
+          bookingReady: c.bookingReady,
+          unavailableReason: c.unavailableReason,
           // Stash B2B-specific data for submission
           _b2bRate: c.rate,
         })) as AvailableCourier[];

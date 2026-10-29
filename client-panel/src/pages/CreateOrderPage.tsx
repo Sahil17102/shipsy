@@ -303,6 +303,12 @@ export function CreateOrderPage() {
       toast.error("Please select a courier partner");
       return;
     }
+    if (selectedCourier.bookingReady === false) {
+      toast.error("This courier cannot be booked", {
+        description: selectedCourier.unavailableReason || "Refresh rates or choose another courier.",
+      });
+      return;
+    }
 
     const draftPayload = buildDraftPayload(data);
     if (!draftPayload) return;
@@ -312,6 +318,8 @@ export function CreateOrderPage() {
       courierId: selectedCourier.courierId,
       courierName: selectedCourier.name,
       serviceProvider: selectedCourier.serviceProvider,
+      bookingReady: selectedCourier.bookingReady,
+      unavailableReason: selectedCourier.unavailableReason,
       rate: {
         forward: selectedCourier.rate.forward,
         rto: selectedCourier.rate.rto,
