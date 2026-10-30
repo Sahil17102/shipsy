@@ -248,6 +248,66 @@ app.post("/api/auth/verify-otp", (req, res, next) => {
   }
 });
 
+function requiredText(value, label, maxLength = 120) {
+  const text = String(value || "").trim();
+  if (!text) throw Object.assign(new Error(`${label} is required`), { status: 400 });
+  return text.slice(0, maxLength);
+}
+
+app.post("/api/auth/onboarding", (req, res, next) => {
+  try {
+    const headerEmail = requireEmail(req.get("x-shipsy-user-email"));
+    const payloadEmail = requireEmail(req.body?.email || headerEmail);
+    if (payloadEmail !== headerEmail) {
+      throw Object.assign(new Error("The onboarding email must match the signed-in account"), { status: 403 });
+    }
+
+    const existing = sellerRegistry.findByEmail(headerEmail) || publicUserForEmail(headerEmail);
+    const firstName = requiredText(req.body?.firstName, "First name", 80);
+    const lastName = requiredText(req.body?.lastName, "Last name", 80);
+    const phone = String(req.body?.phone || "").replace(/\D/g, "");
+    const pincode = String(req.body?.pincode || "").trim();
+    if (!/^\d{10}$/.test(phone)) {
+      throw Object.assign(new Error("A valid 10-digit phone number is required"), { status: 400 });
+    }
+    if (!/^\d{6}$/.test(pincode)) {
+      throw Object.assign(new Error("A valid 6-digit pincode is required"), { status: 400 });
+    }
+
+    const sellsOn = Array.isArray(req.body?.sellsOn)
+      ? [...new Set(req.body.sellsOn.map((value) => String(value).trim()).filter(Boolean))]
+      : [];
+    if (sellsOn.length === 0) {
+      throw Object.assign(new Error("Select at least one sales channel"), { status: 400 });
+    }
+    const integrationsOfInterest = Array.isArray(req.body?.integrationsOfInterest)
+      ? [...new Set(req.body.integrationsOfInterest.map((value) => String(value).trim()).filter(Boolean))]
+      : [];
+
+    const user = sellerRegistry.upsert({
+      ...existing,
+      email: headerEmail,
+      phone,
+      firstName,
+      lastName,
+      name: `${firstName} ${lastName}`,
+      pincode,
+      businessName: requiredText(req.body?.businessName, "Business name", 160),
+      sellsOn,
+      monthlyShipmentVolume: requiredText(req.body?.monthlyShipmentVolume, "Monthly shipment volume", 80),
+      integrationsOfInterest,
+      role: "user",
+      teamRole: "owner",
+      parentUserId: null,
+      isVerified: true,
+      onboardingComplete: true,
+    });
+    return res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/admin/auth/login", (req, res, next) => {
   try {
     const email = requireEmail(req.body?.email);
